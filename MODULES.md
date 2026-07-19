@@ -24,7 +24,7 @@ actually did the work.
 | Round | Module | Owner | Status | Notes |
 |-------|--------|-------|--------|-------|
 | 1 | Sim | Opus (agent, worktree) | done (`812fafc`) | cloud-follow spring-damper retuned (PULL_ACCEL 22→90, VEL_DAMPING_PER_SEC 2.4→16; ζ≈0.26→0.84, kills ~42% overshoot) + mountain leak now has a safety margin instead of a razor-edge cliff at the exact peak |
-| 1 | Render | Sonnet (agent, worktree) | dispatched | visual polish pass on cloud/field/mountain shapes |
+| 1 | Render | Sonnet (agent, worktree) | done (`a31f4cf`, merged `07bf097`) | redesigned cloud (9-bump blob, radial shading, animated face, drip-hem), fields (cracks/sprouts/3-flower bloom pop/overwater ripples), mountains (jagged deterministic multi-peak ridge + treeline) — reviewed against my own Playwright screenshots before merging, not just the agent's word |
 | — | Levels, Input, Audio, UI | — | not started | untouched since the v1 baseline commit |
 
 Update this table (status: `dispatched` → `in review` → `done`, with a

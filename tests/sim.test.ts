@@ -92,6 +92,16 @@ describe('sim: raining onto a field', () => {
     expect(events.some((e) => e.type === 'fieldBloom' && e.fieldId === field.id)).toBe(true);
     expect(events.some((e) => e.type === 'levelComplete')).toBe(true);
     expect(state.phase).toBe('complete');
+
+    // The last bloom happens mid-rain and step() early-returns forever once
+    // complete — so the completing step is the only chance to emit rainStop.
+    // Without it the audio rain loop plays on into the result screen (real
+    // playtest bug). rainStop must arrive no later than levelComplete.
+    const rainStopIdx = events.findIndex((e) => e.type === 'rainStop');
+    const completeIdx = events.findIndex((e) => e.type === 'levelComplete');
+    expect(rainStopIdx).toBeGreaterThanOrEqual(0);
+    expect(rainStopIdx).toBeLessThan(completeIdx);
+    expect(state.cloud.raining).toBe(false);
   });
 
   it('wastes rain that falls with no field underneath', () => {

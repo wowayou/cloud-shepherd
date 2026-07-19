@@ -89,6 +89,11 @@ const STYLES = `
   .cs-fact-card:has(.cs-fact-prompt) { animation:cs-fact-glow 1.8s ease-in-out infinite; }
   .cs-fact-prompt { color:#9a6a1e; font-weight:700; font-size:15px; line-height:1.4; }
   .cs-fact-text { color:#5a4416; font-size:16px; line-height:1.6; }
+  .cs-cycle { gap:2px; font-size:15px; }
+  .cs-cycle-arrow { opacity:0.35; font-size:12px; color:#16324f; }
+  .cs-cycle-stage { opacity:0.3; filter:grayscale(0.6); transition:opacity 0.25s ease, transform 0.25s ease, filter 0.25s ease;
+    display:inline-block; }
+  .cs-cycle-stage.active { opacity:1; filter:none; transform:scale(1.3); }
   @keyframes cs-star-pop { 0% { transform:scale(0); opacity:0; } 70% { transform:scale(1.2); opacity:1; } 100% { transform:scale(1); } }
   @keyframes cs-fact-glow {
     0%, 100% { box-shadow:0 4px 10px rgba(32,52,74,0.14); }
@@ -121,6 +126,10 @@ export function createUi(): UiModule {
   let profileListEl: HTMLElement;
   let levelGridEl: HTMLElement;
   let hudBloomEl: HTMLElement;
+  let hudLevelEl: HTMLElement;
+  let hudCycleEls: Partial<Record<'evap' | 'carry' | 'rain' | 'back', HTMLElement>> = {};
+  let prevCloudWater = 0;
+  let everRained = false; // for the 🔁 stage: re-absorbing after having rained
   let hudWaterFillEl: HTMLElement;
   let hudMuteBtn: HTMLElement;
   let hintEl: HTMLElement;
@@ -233,7 +242,24 @@ export function createUi(): UiModule {
     screen.style.padding = '0';
 
     const bar = el('div', { className: 'cs-hud-bar' });
+    hudLevelEl = el('div', { className: 'cs-pill', text: '' });
     hudBloomEl = el('div', { className: 'cs-pill', text: '🌼 0/0' });
+
+    // Water-cycle stage strip: the sun evaporates sea water (☀️), the cloud
+    // carries it (☁️), rain returns it to the land (🌧️), and it flows back
+    // (🔁). The stage the player is causing *right now* lights up, so the
+    // cycle is named by the game itself while the child plays it.
+    hudCycleEls = {};
+    const cyclePill = el('div', { className: 'cs-pill cs-cycle' });
+    (['evap', 'carry', 'rain', 'back'] as const).forEach((k, i) => {
+      if (i > 0) cyclePill.append(el('span', { className: 'cs-cycle-arrow', text: '→' }));
+      const icon = el('span', { className: 'cs-cycle-stage', text: { evap: '☀️', carry: '☁️', rain: '🌧️', back: '🔁' }[k] });
+      hudCycleEls[k] = icon;
+      cyclePill.append(icon);
+    });
+
+    const leftGroup = el('div', { className: 'cs-row' });
+    leftGroup.append(hudLevelEl, hudBloomEl, cyclePill);
 
     const waterPill = el('div', { className: 'cs-pill' });
     const waterTrack = el('div', { className: 'cs-water-track' });
@@ -255,7 +281,7 @@ export function createUi(): UiModule {
 
     const rightGroup = el('div', { className: 'cs-row' });
     rightGroup.append(waterPill, hudMuteBtn, pauseBtn);
-    bar.append(hudBloomEl, rightGroup);
+    bar.append(leftGroup, rightGroup);
 
     hintEl = el('div', { className: 'cs-hint', text: '' });
     hintEl.style.display = 'none';
@@ -369,6 +395,9 @@ export function createUi(): UiModule {
       hasTutorial = Boolean(d.level.tutorial?.length);
       everFull = false;
       everOverField = false;
+      prevCloudWater = 0;
+      everRained = false;
+      hudLevelEl.textContent = d.level.id === 0 ? `📖 ${d.level.name}` : `${d.level.id} · ${d.level.name}`;
       paused = false;
       pauseOverlay.style.display = 'none';
       hintEl.style.display = hasTutorial ? 'block' : 'none';
@@ -381,6 +410,22 @@ export function createUi(): UiModule {
     hudBloomEl.textContent = `🌼 ${bloomed}/${total}`;
     const pct = state.cloud.maxWater > 0 ? (state.cloud.water / state.cloud.maxWater) * 100 : 0;
     hudWaterFillEl.style.width = `${pct}%`;
+
+    // Light up the water-cycle stage the player is causing right now.
+    // Display-only inference from visible state — no gameplay logic here.
+    const absorbing = state.cloud.water > prevCloudWater + 0.01;
+    prevCloudWater = state.cloud.water;
+    const raining = state.cloud.raining;
+    if (raining) everRained = true;
+    const active: Record<'evap' | 'carry' | 'rain' | 'back', boolean> = {
+      evap: absorbing && !everRained,
+      back: absorbing && everRained, // the same evaporation, but now it *closes the loop*
+      carry: !absorbing && !raining && state.cloud.water > 0,
+      rain: raining,
+    };
+    for (const k of ['evap', 'carry', 'rain', 'back'] as const) {
+      hudCycleEls[k]?.classList.toggle('active', active[k]);
+    }
 
     if (hasTutorial && !paused) {
       hintEl.textContent = computeHintText(state);

@@ -48,11 +48,11 @@ export const STRINGS = {
 
   tutorial: {
     dragCloud: '用手指按住云朵，拖着它走吧',
-    goToSea: '把云朵带到大海上方，吸饱水吧',
-    cloudFull: '云朵变大变暗了，它吸满水啦！',
-    goToField: '现在把云朵带到干渴的田地上方',
-    holdToRain: '按住不动，让云朵下雨吧',
-    watchBloom: '看！田地开花啦！',
+    goToSea: '带云朵去海面上低低地飞——太阳会把海水变成水蒸气',
+    cloudFull: '云朵喝饱了水蒸气，变大变重啦！',
+    goToField: '现在把沉甸甸的云朵带到干渴的田地上方',
+    holdToRain: '停住不动——水太重了，会变成雨掉下来',
+    watchBloom: '雨水浇开花啦！水会流回大海，再变成云，一直转圈圈',
   },
 
   facts: {

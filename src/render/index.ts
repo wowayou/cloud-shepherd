@@ -47,6 +47,8 @@ function drawSky(ctx: CanvasRenderingContext2D, w: number, h: number, timeMs: nu
   ctx.fillStyle = grad;
   ctx.fillRect(0, 0, w, h);
 
+  drawSun(ctx, w, h, timeMs);
+
   // a couple of slow, purely decorative background puffs
   ctx.save();
   ctx.globalAlpha = 0.35;
@@ -56,6 +58,101 @@ function drawSky(ctx: CanvasRenderingContext2D, w: number, h: number, timeMs: nu
     const x = ((timeMs / 1000) * speed + i * w * 0.4) % (w + 200) - 100;
     const y = h * (0.12 + i * 0.07);
     drawPuff(ctx, x, y, h * 0.05);
+  }
+  ctx.restore();
+}
+
+// The sun sits over the sea side of the world — it's the engine of the whole
+// water cycle (it drives the evaporation the child sees as rising vapor), so
+// it deserves to be visibly present, gently pulsing, not just implied.
+function drawSun(ctx: CanvasRenderingContext2D, w: number, h: number, timeMs: number): void {
+  const cx = w * 0.1;
+  const cy = h * 0.13;
+  const r = h * 0.055;
+  const pulse = 1 + Math.sin(timeMs / 1400) * 0.04;
+
+  ctx.save();
+  // halo
+  const halo = ctx.createRadialGradient(cx, cy, r * 0.3, cx, cy, r * 2.6 * pulse);
+  halo.addColorStop(0, 'rgba(255, 236, 160, 0.55)');
+  halo.addColorStop(1, 'rgba(255, 236, 160, 0)');
+  ctx.fillStyle = halo;
+  ctx.beginPath();
+  ctx.arc(cx, cy, r * 2.6 * pulse, 0, Math.PI * 2);
+  ctx.fill();
+
+  // slowly turning rays
+  ctx.strokeStyle = 'rgba(255, 210, 100, 0.7)';
+  ctx.lineWidth = Math.max(2, r * 0.12);
+  ctx.lineCap = 'round';
+  const spin = timeMs / 9000;
+  for (let i = 0; i < 8; i++) {
+    const a = spin + (i / 8) * Math.PI * 2;
+    ctx.beginPath();
+    ctx.moveTo(cx + Math.cos(a) * r * 1.35, cy + Math.sin(a) * r * 1.35);
+    ctx.lineTo(cx + Math.cos(a) * r * (1.7 + 0.12 * Math.sin(timeMs / 700 + i)), cy + Math.sin(a) * r * (1.7 + 0.12 * Math.sin(timeMs / 700 + i)));
+    ctx.stroke();
+  }
+
+  // body
+  const body = ctx.createRadialGradient(cx - r * 0.3, cy - r * 0.3, r * 0.1, cx, cy, r * pulse);
+  body.addColorStop(0, '#fff6c9');
+  body.addColorStop(1, '#ffd166');
+  ctx.fillStyle = body;
+  ctx.beginPath();
+  ctx.arc(cx, cy, r * pulse, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.restore();
+}
+
+// Mirror of sim's absorb condition (over the sea band + flying low + not
+// full) — display-only, so a drifted constant here can't break gameplay.
+const VAPOR_ABSORB_BAND_FRAC = 0.11;
+
+/**
+ * Evaporation made visible. Ambient wisps rise gently off the sea the whole
+ * time (the sun is always working); when the cloud is low over the sea and
+ * drinking, a denser stream of wisps climbs from the surface into the cloud's
+ * belly, so "the cloud fills with water" reads as "sea water becomes vapor
+ * and rises into the cloud" — the actual first stage of the water cycle.
+ */
+function drawVapor(ctx: CanvasRenderingContext2D, state: GameState, timeMs: number): void {
+  const { h } = state.bounds;
+  const { sea, cloud } = state;
+
+  ctx.save();
+  ctx.fillStyle = '#ffffff';
+
+  // ambient: always-on lazy wisps over the sea
+  const ambientCount = 4;
+  for (let i = 0; i < ambientCount; i++) {
+    const t = ((timeMs / 4200) + i / ambientCount) % 1;
+    const x = sea.x0 + (sea.x1 - sea.x0) * (0.15 + 0.7 * hash1(i * 17.3));
+    const sway = Math.sin(t * Math.PI * 3 + i) * h * 0.012;
+    const y = sea.y - t * h * 0.17;
+    ctx.globalAlpha = Math.sin(t * Math.PI) * 0.28;
+    ctx.beginPath();
+    ctx.arc(x + sway, y, h * 0.011 * (1 + t), 0, Math.PI * 2);
+    ctx.fill();
+  }
+
+  // absorbing: a visible stream from the surface into the cloud
+  const overSea = cloud.pos.x >= sea.x0 && cloud.pos.x <= sea.x1;
+  const lowOverSea = sea.y - cloud.pos.y <= h * VAPOR_ABSORB_BAND_FRAC;
+  const drinking = overSea && lowOverSea && cloud.water < cloud.maxWater;
+  if (drinking) {
+    const streamCount = 6;
+    for (let i = 0; i < streamCount; i++) {
+      const t = ((timeMs / 1100) + i / streamCount) % 1;
+      const srcX = cloud.pos.x + (hash1(i * 7.7) - 0.5) * h * 0.16;
+      const dstX = cloud.pos.x + (hash1(i * 3.1) - 0.5) * h * 0.05;
+      const x = lerp(srcX, dstX, t) + Math.sin(t * Math.PI * 2 + i) * h * 0.008;
+      const y = lerp(sea.y, cloud.pos.y + h * 0.045, t);
+      ctx.globalAlpha = Math.sin(t * Math.PI) * 0.6;
+      ctx.beginPath();
+      ctx.arc(x, y, h * 0.009 * (1.4 - t * 0.6), 0, Math.PI * 2);
+      ctx.fill();
+    }
   }
   ctx.restore();
 }
@@ -638,6 +735,7 @@ export function createRender(): RenderModule {
     for (const m of state.mountains) drawMountain(ctx, m);
     for (const f of state.fields) drawField(ctx, f, state.stats.elapsedMs);
     drawWindHint(ctx, state);
+    drawVapor(ctx, state, state.stats.elapsedMs);
     drawCloud(ctx, state);
     drawRain(ctx, state);
 

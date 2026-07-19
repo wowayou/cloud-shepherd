@@ -283,6 +283,14 @@ export function createSim(): SimModule {
     }
 
     if (state.phase === 'playing' && state.fields.every((f) => f.state === 'bloom')) {
+      // The last bloom almost always happens mid-rain, and once phase is
+      // 'complete' step() early-returns forever — so the rainStop below is the
+      // only chance to close the audio rain loop. Without it the rain sound
+      // plays on into the result screen and never stops.
+      if (state.cloud.raining) {
+        state.cloud.raining = false;
+        events.push({ type: 'rainStop' });
+      }
       state.phase = 'complete';
       events.push({ type: 'levelComplete', stats: { ...state.stats } });
     }

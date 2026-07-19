@@ -10,9 +10,9 @@ has been manually verified end-to-end in a real Chromium browser (not just
 `npm test`/typecheck — see "the pointer-events bug" below for why that
 distinction matters).
 
-All three refinement rounds (Sim/Render/Levels/Audio/Input/UI across the
-six modules) are now **done** — the table below is complete; there is no
-outstanding `dispatched`/`in review` work. The remaining known, *decided*
+All four refinement rounds (Sim/Render/Levels/Audio/Input/UI across the
+six modules, plus a salvaged UI-chrome pass) are now **done** — the table
+below is complete; there is no outstanding `dispatched`/`in review` work. The remaining known, *decided*
 shortcut is the wind-as-cosmetic one (L7/L8), documented in its own section
 below — it stays unless someone re-opens it deliberately.
 
@@ -35,6 +35,7 @@ actually did the work.
 | 2 | Audio | Sonnet (agent, worktree) | done (`ab56732`) | new ADSR tone engine (attack/decay/sustain/release + pitch glide + vibrato + bell "partial" layer) replaces flat beeps for every event; `mountainLeak` switched from a tone to filtered noise for timbral distinction from `evaporate`. Empirically verified via OfflineAudioContext waveform analysis (peak amplitude, silence checks, Goertzel frequency-content checks) — caught and fixed a real bug where a pitch glide finished after the gain envelope had already faded to near-silence |
 | 3 | Input | Opus (agent, worktree) | done (`8ed1e50`) | the auto-rain heuristic's reach (`NEAR_FIELD_REACH_FRAC` 0.09) was already a touch looser than Sim's *wet* reach (`RAIN_REACH_FRAC` 0.055); under round-1's near-instant-settle physics that ordering matters (auto-rain arms just outside the wet band so it engages the instant a slow drag enters wet range, never firing where the nearest-field lookup returns nothing → no wasted-rain dump). Constant unchanged — this round was a doc pass naming that tradeoff explicitly so a future tuner reads it, since the buggy alternative (auto-rain fires but no field is wet) is the class of thing `npm test` can't see and only manual dragging exposes |
 | 3 | UI | Sonnet (agent, worktree) | done (`9d4cf7a`) | closed both known gaps: the fact card is now a prompt-then-flip reveal (shows "你知道吗？ 点一下看看" → tap flips to the full fact), wiring the two previously-dead STRINGS (`result.tapToFlip`, `result.knowThis`) that the card's `cursor:pointer` had promised but never delivered. Two new headless smoke tests guard the flip (21 green, was 19). The mute-icon local-state gap (icon toggles via local `hudMuted`, not by reading `AudioModule.isMuted()`) was re-checked and left as-is — the HUD button remains the only mute entry point, so local state still tracks truth correctly |
+| 4 | UI (chrome) | salvaged from an interrupted round-3 Sonnet worktree | done | HUD/menu visual-coherence pass: gradient + soft-shadow chrome echoing the Canvas palette (buttons, pills, water gauge, glossy rain button, pause/result cards), per-star pop animation, glow on the unrevealed fact card. Provenance: the round-3 UI agent died mid-run to a session limit; its uncommitted CSS was adjudicated, adapted to the *landed* tap-to-flip DOM (its competing two-way flip implementation was discarded — the landed one-way flip has tests), and re-verified in a real browser (drag + all screens + flip). The same interrupted round also left an Input hysteresis fix whose premise ("parked cloud holds a steady near-45 speed → rainHeld flicker") was disproven by a deterministic Sim probe (steady speeds are constant plateaus, 0 flips across a parked-height sweep with simulated tremor) and discarded |
 
 ### Known shortcut (decided, not just flagged): wind is cosmetic now, not a real difficulty lever
 

@@ -27,7 +27,8 @@ actually did the work.
 | 1 | Render | Sonnet (agent, worktree) | done (`a31f4cf`, merged `07bf097`) | redesigned cloud (9-bump blob, radial shading, animated face, drip-hem), fields (cracks/sprouts/3-flower bloom pop/overwater ripples), mountains (jagged deterministic multi-peak ridge + treeline) — reviewed against my own Playwright screenshots before merging, not just the agent's word |
 | 2 | Levels | Opus (agent, worktree) | done (`25b4acc`, merged `ea3ca43`) | round 1's Sim retune made every hard level auto-earn 3★ against the old flat 22s/34s gate; replaced with per-level `starThresholds` calibrated against a measured "ideal run" (deterministic `createSim()`) + real Playwright playthroughs — 3★≈2× ideal, 2★≈3× ideal, 1★ beyond (still a win) |
 | 2 | Audio | Sonnet (agent, worktree) | done (`ab56732`) | new ADSR tone engine (attack/decay/sustain/release + pitch glide + vibrato + bell "partial" layer) replaces flat beeps for every event; `mountainLeak` switched from a tone to filtered noise for timbral distinction from `evaporate`. Empirically verified via OfflineAudioContext waveform analysis (peak amplitude, silence checks, Goertzel frequency-content checks) — caught and fixed a real bug where a pitch glide finished after the gain envelope had already faded to near-silence |
-| — | Input, UI | — | not started | untouched since the v1 baseline commit |
+| 3 | Input | Opus (agent, worktree) | dispatched | check whether the near-still auto-rain heuristic still feels right now that the cloud settles near-instantly under round 1's retuned physics |
+| 3 | UI | Sonnet (agent, worktree) | dispatched | close known gaps (unused tapToFlip string, mute-icon local state), and check HUD emoji still read well against Render's round-1 redesign |
 
 ### Known shortcut (decided, not just flagged): wind is cosmetic now, not a real difficulty lever
 

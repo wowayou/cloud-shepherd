@@ -59,8 +59,11 @@ const STYLES = `
   .cs-result-card { background:rgba(255,255,255,0.92); border-radius:24px; padding:28px 36px;
     display:flex; flex-direction:column; align-items:center; gap:14px; max-width:420px; pointer-events:auto; }
   .cs-star-row { font-size:40px; letter-spacing:6px; }
-  .cs-fact-card { background:#fff3d6; border-radius:16px; padding:12px 18px; cursor:pointer;
-    text-align:center; max-width:340px; }
+  .cs-fact-card { background:#fff3d6; border-radius:16px; padding:16px 22px; cursor:pointer;
+    text-align:center; max-width:340px; pointer-events:auto; transition:background 0.18s ease; }
+  .cs-fact-card:hover { background:#ffeec0; }
+  .cs-fact-prompt { color:#9a6a1e; font-weight:700; font-size:15px; line-height:1.4; }
+  .cs-fact-text { color:#5a4416; font-size:16px; line-height:1.6; }
 `;
 
 function el<K extends keyof HTMLElementTagNameMap>(
@@ -94,6 +97,7 @@ export function createUi(): UiModule {
   let pauseOverlay: HTMLElement;
   let resultStarsEl: HTMLElement;
   let resultFactEl: HTMLElement;
+  let resultFactPromptEl: HTMLElement; // the "tap to flip" hint shown before the fact is revealed
 
   function injectStyles(): void {
     if (document.getElementById(STYLE_ID)) return;
@@ -269,9 +273,19 @@ export function createUi(): UiModule {
     card.append(el('div', { text: STRINGS.result.subtitleAllBloom }));
     resultStarsEl = el('div', { className: 'cs-star-row', text: '' });
     card.append(resultStarsEl);
-    resultFactEl = el('div', { className: 'cs-fact-card', text: '' });
+
+    // Fact card with a prompt-then-flip reveal: shows the "tap to look" prompt
+    // first, and only flips to the full fact text on tap. The classic "did you
+    // know?" moment lands better when a child actively opens it than when it's
+    // dumped under the stars unchecked. Touch devices get the same gesture — a
+    // single tap — via the click handler.
+    resultFactEl = el('div', { className: 'cs-fact-card' });
     resultFactEl.style.display = 'none';
+    resultFactPromptEl = el('div', { className: 'cs-fact-prompt', text: STRINGS.result.tapToFlip });
+    resultFactEl.addEventListener('click', () => flipFactCard());
+    resultFactEl.append(resultFactPromptEl);
     card.append(resultFactEl);
+
     const row = el('div', { className: 'cs-row' });
     row.append(
       el('button', { className: 'cs-btn primary', text: STRINGS.result.nextLevel, onClick: () => callbacks.onNext() }),
@@ -280,6 +294,23 @@ export function createUi(): UiModule {
     card.append(row);
     screen.append(card);
     return screen;
+  }
+
+  /** Show the prompt state (pre-flip) with the knowThis headline above the
+   *  tap hint. Called from showResult() before the card is interacted with. */
+  function resetFactCard(): void {
+    resultFactPromptEl.textContent = `${STRINGS.result.knowThis} ${STRINGS.result.tapToFlip}`;
+    resultFactPromptEl.className = 'cs-fact-prompt';
+  }
+
+  /** Flip to the full fact text (a one-way reveal — facts don't hide again). */
+  function flipFactCard(): void {
+    const text = resultFactPromptEl.dataset.factText;
+    if (!text) return; // nothing to flip to (no fact card for this level)
+    resultFactPromptEl.textContent = text;
+    resultFactPromptEl.className = 'cs-fact-text';
+    // the card already has cursor:pointer + hover; after reveal it's inert,
+    // but leave the affordance — re-tapping just re-shows the same text harmlessly.
   }
 
   function setScene(scene: Scene, data?: unknown): void {
@@ -343,9 +374,13 @@ export function createUi(): UiModule {
   function showResult(stars: number, factCardText?: string): void {
     resultStarsEl.textContent = '★'.repeat(stars) + '☆'.repeat(Math.max(0, 3 - stars));
     if (factCardText) {
+      // Stash the final text on the prompt element and start in the pre-flip
+      // prompt state; the click handler on the card flips to it.
+      resultFactPromptEl.dataset.factText = factCardText;
+      resetFactCard();
       resultFactEl.style.display = 'block';
-      resultFactEl.textContent = factCardText;
     } else {
+      delete resultFactPromptEl.dataset.factText;
       resultFactEl.style.display = 'none';
     }
   }

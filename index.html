@@ -1,0 +1,92 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover" />
+    <meta name="theme-color" content="#bfe6f5" />
+    <title>云朵牧羊人</title>
+    <style>
+      html, body {
+        margin: 0;
+        padding: 0;
+        width: 100%;
+        height: 100%;
+        overflow: hidden;
+        background: #bfe6f5;
+        touch-action: none;
+        overscroll-behavior: none;
+        font-family: -apple-system, BlinkMacSystemFont, 'PingFang SC', 'Microsoft YaHei', sans-serif;
+      }
+
+      #app {
+        position: fixed;
+        inset: 0;
+        width: 100%;
+        height: 100%;
+      }
+
+      #game-canvas {
+        display: block;
+        width: 100%;
+        height: 100%;
+        touch-action: none;
+      }
+
+      #ui-root {
+        position: fixed;
+        inset: 0;
+        pointer-events: none;
+      }
+
+      #rotate-guard {
+        position: fixed;
+        inset: 0;
+        display: none;
+        align-items: center;
+        justify-content: center;
+        flex-direction: column;
+        gap: 16px;
+        background: #16324f;
+        color: white;
+        text-align: center;
+        z-index: 1000;
+        padding: 24px;
+        box-sizing: border-box;
+      }
+
+      #rotate-guard .icon {
+        font-size: 56px;
+        animation: rotate-hint 1.6s ease-in-out infinite;
+      }
+
+      #rotate-guard p {
+        font-size: 18px;
+        margin: 0;
+        max-width: 320px;
+        line-height: 1.6;
+      }
+
+      @keyframes rotate-hint {
+        0%, 100% { transform: rotate(0deg); }
+        50% { transform: rotate(90deg); }
+      }
+
+      @media (orientation: portrait) and (max-aspect-ratio: 1/1) {
+        #rotate-guard {
+          display: flex;
+        }
+      }
+    </style>
+  </head>
+  <body>
+    <div id="app">
+      <canvas id="game-canvas"></canvas>
+      <div id="ui-root"></div>
+    </div>
+    <div id="rotate-guard">
+      <div class="icon">📱</div>
+      <p>请把设备横过来玩游戏哦</p>
+    </div>
+    <script type="module" src="/src/main.ts"></script>
+  </body>
+</html>

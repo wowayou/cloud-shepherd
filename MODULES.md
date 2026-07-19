@@ -29,24 +29,40 @@ actually did the work.
 | 2 | Audio | Sonnet (agent, worktree) | done (`ab56732`) | new ADSR tone engine (attack/decay/sustain/release + pitch glide + vibrato + bell "partial" layer) replaces flat beeps for every event; `mountainLeak` switched from a tone to filtered noise for timbral distinction from `evaporate`. Empirically verified via OfflineAudioContext waveform analysis (peak amplitude, silence checks, Goertzel frequency-content checks) — caught and fixed a real bug where a pitch glide finished after the gain envelope had already faded to near-silence |
 | — | Input, UI | — | not started | untouched since the v1 baseline commit |
 
-### Known cross-module issue: wind is no longer a real difficulty lever
+### Known shortcut (decided, not just flagged): wind is cosmetic now, not a real difficulty lever
 
 Found by the round 2 Levels agent while rebalancing. A held cloud's
 steady-state wind displacement is `windX / PULL_ACCEL`. Before round 1's
 Sim retune that was `14/22 ≈ 0.64` world-units; after (`PULL_ACCEL: 22→90`)
 it's `14/90 ≈ 0.16` — negligible on a ~1150-unit-wide world. L7/L8 (which
 exist specifically to introduce wind/gusts) now play indistinguishably
-from a calm level; their difficulty was rebalanced to match L4's pace
-rather than assume wind adds time. `cloudMaxWater`/mountains still work
-fine as difficulty levers.
+from a calm level.
 
-Fixing this for real needs a **Sim-side design decision** (not a Levels
-hack): e.g. scale wind relative to `PULL_ACCEL`, apply wind as drag on
-released-cloud drift rather than a constant force fought at all times, or
-accept wind as a cosmetic/flavor mechanic and lean on water-budget +
-mountains for actual difficulty (L9/L10 already do this and aren't
-affected). Whoever picks up Sim next should read this before touching
-wind-related constants.
+**Decision (2026-07-19): accept this, don't fix it.** Three options were on
+the table — scale wind relative to `PULL_ACCEL`, make wind act as drag on
+released-cloud drift instead of a constant force fought while held, or
+just accept wind as flavor and rely on `cloudMaxWater`/mountains for real
+difficulty. We took the third, cheapest option.
+
+Be honest about what that costs: the original design brief called for
+**"拖拽 + 风阻"** — wind resistance fought while actively dragging — as
+part of the *core hand-feel*, not just an occasional level gimmick, and
+this decision quietly walks that back for every level except the ones
+where wind was never the point (L9/L10 lean on water-budget + mountains,
+which are unaffected). L7 ("一点点风") and L8 ("阵风来了") are now
+levels whose entire built-in premise — introducing wind as a mechanic —
+is cosmetic; their difficulty was rebalanced to match a calm level's pace
+rather than actually deliver what their names promise. We chose this
+because round 1's snappy, near-zero-overshoot drag feel was itself a
+deliberate, verified fix for a real problem (42% pointer-drag overshoot),
+and re-opening that physics to make wind bite again risks reintroducing
+it — not because the tradeoff is free.
+
+If this gets revisited: the honest fix is giving wind resistance back its
+own axis independent of pointer-follow stiffness (e.g. option 2 above —
+wind as post-release drag), not just cranking `windBaseX` back up, which
+would only matter during release/transit and do nothing for a held cloud
+under the current spring-damper model.
 
 Update this table (status: `dispatched` → `in review` → `done`, with a
 one-line note on what actually landed) whenever a refinement round starts

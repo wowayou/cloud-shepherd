@@ -14,6 +14,23 @@ So the job for each module now is **refinement, not bootstrapping**: tune
 feel, deepen the art/audio, harden edge cases — without breaking the other
 five modules, which you should not need to touch or even read closely.
 
+## Refinement status
+
+Only Claude tiers (Opus/Sonnet/Haiku) are dispatchable as agents in this
+workflow — "GPT" in the doc title reflects the original brief's intent
+(mix vendors) but isn't wired up yet; the owner column below reflects who
+actually did the work.
+
+| Round | Module | Owner | Status | Notes |
+|-------|--------|-------|--------|-------|
+| 1 | Sim | Opus (agent, worktree) | dispatched | physics feel tuning + mountain leak safety margin |
+| 1 | Render | Sonnet (agent, worktree) | dispatched | visual polish pass on cloud/field/mountain shapes |
+| — | Levels, Input, Audio, UI | — | not started | untouched since the v1 baseline commit |
+
+Update this table (status: `dispatched` → `in review` → `done`, with a
+one-line note on what actually landed) whenever a refinement round starts
+or finishes — this file is the durable record other models/humans read.
+
 Run before you start, and again before you hand back:
 ```
 npm install

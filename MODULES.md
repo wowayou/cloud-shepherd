@@ -25,9 +25,28 @@ actually did the work.
 |-------|--------|-------|--------|-------|
 | 1 | Sim | Opus (agent, worktree) | done (`812fafc`) | cloud-follow spring-damper retuned (PULL_ACCEL 22→90, VEL_DAMPING_PER_SEC 2.4→16; ζ≈0.26→0.84, kills ~42% overshoot) + mountain leak now has a safety margin instead of a razor-edge cliff at the exact peak |
 | 1 | Render | Sonnet (agent, worktree) | done (`a31f4cf`, merged `07bf097`) | redesigned cloud (9-bump blob, radial shading, animated face, drip-hem), fields (cracks/sprouts/3-flower bloom pop/overwater ripples), mountains (jagged deterministic multi-peak ridge + treeline) — reviewed against my own Playwright screenshots before merging, not just the agent's word |
-| 2 | Levels | Opus (agent, worktree) | dispatched | balance pass on the 10-level curve against the retuned Sim physics from round 1 |
+| 2 | Levels | Opus (agent, worktree) | done (`25b4acc`, merged `ea3ca43`) | round 1's Sim retune made every hard level auto-earn 3★ against the old flat 22s/34s gate; replaced with per-level `starThresholds` calibrated against a measured "ideal run" (deterministic `createSim()`) + real Playwright playthroughs — 3★≈2× ideal, 2★≈3× ideal, 1★ beyond (still a win) |
 | 2 | Audio | Sonnet (agent, worktree) | done (`ab56732`) | new ADSR tone engine (attack/decay/sustain/release + pitch glide + vibrato + bell "partial" layer) replaces flat beeps for every event; `mountainLeak` switched from a tone to filtered noise for timbral distinction from `evaporate`. Empirically verified via OfflineAudioContext waveform analysis (peak amplitude, silence checks, Goertzel frequency-content checks) — caught and fixed a real bug where a pitch glide finished after the gain envelope had already faded to near-silence |
 | — | Input, UI | — | not started | untouched since the v1 baseline commit |
+
+### Known cross-module issue: wind is no longer a real difficulty lever
+
+Found by the round 2 Levels agent while rebalancing. A held cloud's
+steady-state wind displacement is `windX / PULL_ACCEL`. Before round 1's
+Sim retune that was `14/22 ≈ 0.64` world-units; after (`PULL_ACCEL: 22→90`)
+it's `14/90 ≈ 0.16` — negligible on a ~1150-unit-wide world. L7/L8 (which
+exist specifically to introduce wind/gusts) now play indistinguishably
+from a calm level; their difficulty was rebalanced to match L4's pace
+rather than assume wind adds time. `cloudMaxWater`/mountains still work
+fine as difficulty levers.
+
+Fixing this for real needs a **Sim-side design decision** (not a Levels
+hack): e.g. scale wind relative to `PULL_ACCEL`, apply wind as drag on
+released-cloud drift rather than a constant force fought at all times, or
+accept wind as a cosmetic/flavor mechanic and lean on water-budget +
+mountains for actual difficulty (L9/L10 already do this and aren't
+affected). Whoever picks up Sim next should read this before touching
+wind-related constants.
 
 Update this table (status: `dispatched` → `in review` → `done`, with a
 one-line note on what actually landed) whenever a refinement round starts

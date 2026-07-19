@@ -21,13 +21,31 @@ const SKY_TOP_FRAC = 0.06;
 const CLOUD_MARGIN_FRAC = 0.04;
 const POINTER_OFFSET_Y_FRAC = 0.07;
 
-const PULL_ACCEL = 22; // 1/s^2, how hard the cloud accelerates toward the pointer
-const VEL_DAMPING_PER_SEC = 2.4; // higher = snappier stop, lower = more drift
+// Cloud-follow spring-damper. The update below is equivalent to the ODE
+//   x'' + (VEL_DAMPING_PER_SEC)·x' + (PULL_ACCEL)·x = PULL_ACCEL·target,
+// so the perceived feel is set by two derived quantities:
+//   natural freq  ω = √PULL_ACCEL              (how fast it reacts / low lag)
+//   damping ratio ζ = VEL_DAMPING/(2·√PULL_ACCEL)  (overshoot vs. sluggishness)
+// The original 22 / 2.4 gave ζ≈0.26 — badly under-damped, ~42% overshoot, so a
+// child's drag made the cloud shoot past their finger and wobble (~1.3 s ring-out).
+// These raise stiffness AND damping together for ζ≈0.84 (imperceptible <1%
+// overshoot, settles in ~0.85 s) while the higher ω keeps steady-state follow-lag
+// low (~50–100 world-units at realistic child drag speeds — it still trails the
+// finger softly like a cloud should, but tracks instead of bouncing).
+const PULL_ACCEL = 90; // 1/s^2, how hard the cloud accelerates toward the pointer
+const VEL_DAMPING_PER_SEC = 16; // higher = snappier stop, lower = more drift
 
 const ABSORB_BAND_FRAC = 0.11; // how close to the sea surface counts as "flying low"
 const RAIN_REACH_FRAC = 0.055; // extra radius beyond a field's own radius that still counts as "over it"
 
 const MOUNTAIN_LEAK_RATE = 14; // water/sec lost while clipping a mountain
+// Safety buffer (world-units, as a frac of worldH) above a peak within which the
+// cloud already counts as "clipping". Without it the leak was a razor cliff at the
+// exact peak point: clearing it by 1 unit was as safe as clearing by 50, yet the
+// cloud's puffy belly (~0.7·baseR ≈ 25–43u below its center) was still buried in
+// the mountain. This makes the leak begin as that belly grazes the peak, so the
+// penalty matches what the child sees and rewards clearing with real headroom.
+const MOUNTAIN_SAFE_MARGIN_FRAC = 0.03;
 const OVERWATER_DRAIN_RATE = 7; // water/sec a flooded field drains back toward its cap
 const BLOOM_EASE_PER_SEC = 2.4; // bloom01 animation speed once a field locks in
 
@@ -195,7 +213,9 @@ export function createSim(): SimModule {
       }
     }
 
-    // mountains: flying at/under the peak height clips and leaks water
+    // mountains: flying within a safety margin of (or under) the peak height
+    // clips and leaks water
+    const mountainSafeMargin = worldH * MOUNTAIN_SAFE_MARGIN_FRAC;
     for (const m of state.mountains) {
       const left = m.pos.x - m.width / 2;
       const right = m.pos.x + m.width / 2;
@@ -203,7 +223,7 @@ export function createSim(): SimModule {
       if (
         state.cloud.pos.x >= left &&
         state.cloud.pos.x <= right &&
-        state.cloud.pos.y > topY &&
+        state.cloud.pos.y > topY - mountainSafeMargin &&
         state.cloud.water > 0
       ) {
         const leak = Math.min(MOUNTAIN_LEAK_RATE * dt, state.cloud.water);

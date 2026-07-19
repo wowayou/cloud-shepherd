@@ -10,6 +10,12 @@ has been manually verified end-to-end in a real Chromium browser (not just
 `npm test`/typecheck — see "the pointer-events bug" below for why that
 distinction matters).
 
+All three refinement rounds (Sim/Render/Levels/Audio/Input/UI across the
+six modules) are now **done** — the table below is complete; there is no
+outstanding `dispatched`/`in review` work. The remaining known, *decided*
+shortcut is the wind-as-cosmetic one (L7/L8), documented in its own section
+below — it stays unless someone re-opens it deliberately.
+
 So the job for each module now is **refinement, not bootstrapping**: tune
 feel, deepen the art/audio, harden edge cases — without breaking the other
 five modules, which you should not need to touch or even read closely.
@@ -27,8 +33,8 @@ actually did the work.
 | 1 | Render | Sonnet (agent, worktree) | done (`a31f4cf`, merged `07bf097`) | redesigned cloud (9-bump blob, radial shading, animated face, drip-hem), fields (cracks/sprouts/3-flower bloom pop/overwater ripples), mountains (jagged deterministic multi-peak ridge + treeline) — reviewed against my own Playwright screenshots before merging, not just the agent's word |
 | 2 | Levels | Opus (agent, worktree) | done (`25b4acc`, merged `ea3ca43`) | round 1's Sim retune made every hard level auto-earn 3★ against the old flat 22s/34s gate; replaced with per-level `starThresholds` calibrated against a measured "ideal run" (deterministic `createSim()`) + real Playwright playthroughs — 3★≈2× ideal, 2★≈3× ideal, 1★ beyond (still a win) |
 | 2 | Audio | Sonnet (agent, worktree) | done (`ab56732`) | new ADSR tone engine (attack/decay/sustain/release + pitch glide + vibrato + bell "partial" layer) replaces flat beeps for every event; `mountainLeak` switched from a tone to filtered noise for timbral distinction from `evaporate`. Empirically verified via OfflineAudioContext waveform analysis (peak amplitude, silence checks, Goertzel frequency-content checks) — caught and fixed a real bug where a pitch glide finished after the gain envelope had already faded to near-silence |
-| 3 | Input | Opus (agent, worktree) | dispatched | check whether the near-still auto-rain heuristic still feels right now that the cloud settles near-instantly under round 1's retuned physics |
-| 3 | UI | Sonnet (agent, worktree) | dispatched | close known gaps (unused tapToFlip string, mute-icon local state), and check HUD emoji still read well against Render's round-1 redesign |
+| 3 | Input | Opus (agent, worktree) | done (`6542a78`) | the auto-rain heuristic's reach (`NEAR_FIELD_REACH_FRAC` 0.09) was already a touch looser than Sim's *wet* reach (`RAIN_REACH_FRAC` 0.055); under round-1's near-instant-settle physics that ordering matters (auto-rain arms just outside the wet band so it engages the instant a slow drag enters wet range, never firing where the nearest-field lookup returns nothing → no wasted-rain dump). Constant unchanged — this round was a doc pass naming that tradeoff explicitly so a future tuner reads it, since the buggy alternative (auto-rain fires but no field is wet) is the class of thing `npm test` can't see and only manual dragging exposes |
+| 3 | UI | Sonnet (agent, worktree) | done (`3be77e3`) | closed both known gaps: the fact card is now a prompt-then-flip reveal (shows "你知道吗？ 点一下看看" → tap flips to the full fact), wiring the two previously-dead STRINGS (`result.tapToFlip`, `result.knowThis`) that the card's `cursor:pointer` had promised but never delivered. Two new headless smoke tests guard the flip (21 green, was 19). The mute-icon local-state gap (icon toggles via local `hudMuted`, not by reading `AudioModule.isMuted()`) was re-checked and left as-is — the HUD button remains the only mute entry point, so local state still tracks truth correctly |
 
 ### Known shortcut (decided, not just flagged): wind is cosmetic now, not a real difficulty lever
 

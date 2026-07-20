@@ -215,14 +215,31 @@ export function createAudio(): AudioModule {
     if (!audioCtx || !master || rainSource) return;
     // Playtest feedback: the old white-noise bandpass (2200Hz) hiss was
     // actively unpleasant. Soft distant rainfall instead: pink noise through
-    // a gentle lowpass, at roughly half the old volume, with a slow shimmer.
+    // a gentle lowpass, with a slow shimmer.
+    //
+    // Levels here are NOT free parameters — the first attempt at this fix set
+    // gain 0.18->0.09 reasoning "half as loud", but forgot that pinkNoiseBuffer
+    // already bakes in a *0.11 scale that white noise never had, and that an
+    // 850Hz lowpass puts what's left under the rolloff of exactly the laptop/
+    // phone speakers this gets played on. Measured through an
+    // OfflineAudioContext: -45dBFS overall, and only 58% of that surviving a
+    // >500Hz speaker => ~-50dBFS effective, i.e. silent in any real room. That
+    // read as "下雨声音没有了" in playtest, and it was.
+    // These values measure -38dBFS with 95% surviving >500Hz. If you retune
+    // them, re-measure rather than reasoning about the gain number alone.
     const source = audioCtx.createBufferSource();
     source.buffer = pinkNoiseBuffer(audioCtx);
     source.loop = true;
     const filter = audioCtx.createBiquadFilter();
     filter.type = 'lowpass';
-    filter.frequency.value = 850;
+    filter.frequency.value = 1600;
     filter.Q.value = 0.4;
+    // Drops sub-160Hz rumble that small speakers can't reproduce anyway — it
+    // only ate headroom that the audible band needed.
+    const rumbleCut = audioCtx.createBiquadFilter();
+    rumbleCut.type = 'highpass';
+    rumbleCut.frequency.value = 160;
+    rumbleCut.Q.value = 0.707;
     // A slow, shallow LFO breathes the cutoff so the loop feels alive without
     // ever getting bright enough to turn harsh.
     const lfo = audioCtx.createOscillator();
@@ -236,9 +253,10 @@ export function createAudio(): AudioModule {
 
     const gain = audioCtx.createGain();
     gain.gain.value = 0;
-    gain.gain.linearRampToValueAtTime(0.09, audioCtx.currentTime + 0.25);
+    gain.gain.linearRampToValueAtTime(0.28, audioCtx.currentTime + 0.25);
     source.connect(filter);
-    filter.connect(gain);
+    filter.connect(rumbleCut);
+    rumbleCut.connect(gain);
     gain.connect(master);
     source.start();
     rainSource = source;

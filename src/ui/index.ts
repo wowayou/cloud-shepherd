@@ -40,8 +40,18 @@ const STYLES = `
     border:none; cursor:pointer; font:inherit; pointer-events:auto; }
   .cs-input { font:inherit; font-size:18px; padding:10px 14px; border-radius:14px; border:2px solid #cfd8dc;
     pointer-events:auto; background:#ffffff; }
+  /* pointer-events:auto is load-bearing, not decoration. .cs-screen defaults to
+     pointer-events:none (see the header comment) and pointer-events INHERITS, so
+     without this the scroll container is invisible to hit-testing: wheel and
+     touch both land on the canvas underneath and the grid never scrolls. On a
+     landscape phone that left ~460px of level cards in a ~180px window with no
+     way to reach the bottom rows, and it got worse as more levels unlocked.
+     touch-action:pan-y is needed too — body and #game-canvas both set
+     touch-action:none, so the grid must opt back into vertical panning.
+     min-height:0 lets it shrink as a flex item instead of overflowing. */
   .cs-grid { display:grid; grid-template-columns:repeat(auto-fill, minmax(150px,1fr)); gap:14px;
-    max-width:900px; width:100%; overflow-y:auto; padding:8px; }
+    max-width:900px; width:100%; overflow-y:auto; padding:8px;
+    pointer-events:auto; touch-action:pan-y; overscroll-behavior:contain; min-height:0; }
   .cs-level-card { background:linear-gradient(165deg, rgba(255,255,255,0.96), rgba(224,242,253,0.88));
     border-radius:18px; padding:12px; text-align:center; box-shadow:0 4px 10px rgba(32,52,74,0.12);
     display:flex; flex-direction:column; gap:8px; }

@@ -351,6 +351,24 @@ export function createAudio(): AudioModule {
         // timbrally unmistakable from the tonal "glug" of evaporate.
         noiseBurst(3400, { type: 'bandpass', q: 1.4, gain: 0.14, attack: 0.004, decay: 0.16 });
         break;
+      case 'birdHit':
+        // A startled little squawk: a fast down-glide over a noise chirp. Kept
+        // short and mid-bright so it reads as "oops, dodge next time" rather
+        // than a punishment sting.
+        tone(720, { type: 'triangle', gain: 0.18, freqEnd: 430, glideTime: 0.05, attack: 0.004, decay: 0.11, release: 0.05 });
+        noiseBurst(2100, { type: 'bandpass', q: 2.2, gain: 0.1, attack: 0.003, decay: 0.09 });
+        break;
+      case 'chillEnter':
+        // Two descending, wobbling notes — the cloud "freezing up". Slow attack
+        // so it feels like settling into cold, not being hit by it.
+        tone(NOTE.E5, { type: 'sine', gain: 0.18, attack: 0.03, decay: 0.2, sustain: 0.25, hold: 0.06, release: 0.2, vibratoHz: 5, vibratoCents: 22 });
+        tone(NOTE.C5, { type: 'sine', gain: 0.16, attack: 0.03, decay: 0.24, sustain: 0.2, hold: 0.06, release: 0.26, vibratoHz: 5, vibratoCents: 22, delayS: 0.12 });
+        break;
+      case 'chillExit':
+        // The same shape inverted — thawing out, back to work.
+        tone(NOTE.C5, { type: 'sine', gain: 0.16, attack: 0.008, decay: 0.12, release: 0.06, partial: 2, partialGain: 0.25 });
+        tone(NOTE.G5, { type: 'sine', gain: 0.2, attack: 0.008, decay: 0.16, release: 0.1, partial: 2, partialGain: 0.3, delayS: 0.09 });
+        break;
       case 'levelComplete': {
         // A short rising run into a held, vibrato'd major chord "ta-da",
         // plus a faint high shimmer on the landing — a real little reward.

@@ -1,4 +1,4 @@
-import type { Field, GameState, Mountain, RenderModule, Viewport } from '../types.ts';
+import type { Bird, ColdFront, Field, GameState, Mountain, RenderModule, Thermal, Viewport } from '../types.ts';
 
 // Flat, soft-pastel style. Every pixel is drawn with primitives — no images,
 // no @font-face — so the game never depends on an asset finishing a network
@@ -632,8 +632,15 @@ function drawCloud(ctx: CanvasRenderingContext2D, state: GameState): void {
   const cy = cloud.pos.y + bob;
   const r = baseR * breathe;
 
-  const bodyTuple = mixTuple([255, 255, 255], [162, 176, 191], wetness);
-  const shadeTuple = mixTuple([210, 220, 228], [110, 126, 145], wetness);
+  let bodyTuple = mixTuple([255, 255, 255], [162, 176, 191], wetness);
+  let shadeTuple = mixTuple([210, 220, 228], [110, 126, 145], wetness);
+  // Chilled clouds read cold: the body shifts toward pale ice-blue. This is the
+  // only cue for a state that silently disables both drinking and raining, so
+  // it is deliberately a whole-body colour change, not a small badge.
+  if (cloud.chilled) {
+    bodyTuple = mixTuple(bodyTuple, [198, 228, 246], 0.65);
+    shadeTuple = mixTuple(shadeTuple, [150, 190, 220], 0.65);
+  }
 
   ctx.save();
   ctx.shadowColor = 'rgba(45,65,90,0.3)';
@@ -697,28 +704,179 @@ function drawRain(ctx: CanvasRenderingContext2D, state: GameState): void {
   ctx.restore();
 }
 
+/**
+ * Wind is a real mechanic as of round 7 (it displaces the cloud from the
+ * player's finger), so the hint has to actually communicate direction AND
+ * strength — the old three static chevrons in one corner did neither. These are
+ * drifting streaks spread over the sky whose count, length, opacity and travel
+ * speed all scale with the wind, so a gust visibly surges.
+ */
 function drawWindHint(ctx: CanvasRenderingContext2D, state: GameState): void {
   const windX = state.wind.baseX + state.wind.gustX;
-  if (Math.abs(windX) < 1) return;
+  if (Math.abs(windX) < 4) return;
   const { w, h } = state.bounds;
-  const y = h * 0.08;
+  const t = state.stats.elapsedMs / 1000;
   const dir = Math.sign(windX);
-  const strength = Math.min(1, Math.abs(windX) / 40);
+  const strength = Math.min(1, Math.abs(windX) / 60);
+  const count = 3 + Math.round(strength * 5);
+
   ctx.save();
-  ctx.globalAlpha = 0.25 + 0.35 * strength;
   ctx.strokeStyle = '#ffffff';
-  ctx.lineWidth = Math.max(2, h * 0.006);
   ctx.lineCap = 'round';
-  const count = 3;
   for (let i = 0; i < count; i++) {
-    const cx = w * (0.25 + i * 0.18);
+    const seed = hash1(i * 7.13);
+    const y = h * (0.1 + seed * 0.42);
+    const len = h * (0.05 + 0.11 * strength) * (0.6 + seed * 0.8);
+    const speed = (90 + 260 * strength) * (0.7 + seed * 0.6);
+    // wrap across a span wider than the world so streaks enter from off-screen
+    const span = w + len * 2;
+    const x = (((t * speed * dir + seed * span) % span) + span) % span - len;
+    ctx.globalAlpha = (0.16 + 0.3 * strength) * (0.5 + seed * 0.5);
+    ctx.lineWidth = Math.max(1.5, h * 0.004 * (0.7 + strength));
     ctx.beginPath();
-    ctx.moveTo(cx - dir * h * 0.02, y);
-    ctx.lineTo(cx + dir * h * 0.02, y);
-    ctx.lineTo(cx + dir * h * 0.01, y - h * 0.012);
-    ctx.moveTo(cx + dir * h * 0.02, y);
-    ctx.lineTo(cx + dir * h * 0.01, y + h * 0.012);
+    ctx.moveTo(x, y);
+    ctx.lineTo(x + len * dir, y);
     ctx.stroke();
+    // a small arrowhead on the leading end so direction is unambiguous
+    ctx.beginPath();
+    ctx.moveTo(x + len * dir, y);
+    ctx.lineTo(x + (len - h * 0.016) * dir, y - h * 0.009);
+    ctx.moveTo(x + len * dir, y);
+    ctx.lineTo(x + (len - h * 0.016) * dir, y + h * 0.009);
+    ctx.stroke();
+  }
+  ctx.restore();
+}
+
+/** Rising warm air: a wavering column with upward chevrons climbing it. */
+function drawThermal(ctx: CanvasRenderingContext2D, t: Thermal, timeMs: number): void {
+  const time = timeMs / 1000;
+  const topY = t.pos.y - t.height;
+  const halfW = t.width / 2;
+
+  ctx.save();
+  const grad = ctx.createLinearGradient(0, t.pos.y, 0, topY);
+  grad.addColorStop(0, 'rgba(255, 178, 92, 0.5)');
+  grad.addColorStop(0.6, 'rgba(255, 203, 136, 0.26)');
+  grad.addColorStop(1, 'rgba(255, 226, 186, 0)');
+  ctx.fillStyle = grad;
+  // wavy sides, so it shimmers like heat haze instead of reading as a solid box
+  ctx.beginPath();
+  ctx.moveTo(t.pos.x - halfW, t.pos.y);
+  for (let i = 0; i <= 10; i++) {
+    const f = i / 10;
+    const y = t.pos.y - t.height * f;
+    const wob = Math.sin(time * 2.1 + f * 5) * halfW * 0.12;
+    ctx.lineTo(t.pos.x - halfW * (1 - f * 0.25) + wob, y);
+  }
+  for (let i = 10; i >= 0; i--) {
+    const f = i / 10;
+    const y = t.pos.y - t.height * f;
+    const wob = Math.sin(time * 2.1 + f * 5 + 1.7) * halfW * 0.12;
+    ctx.lineTo(t.pos.x + halfW * (1 - f * 0.25) + wob, y);
+  }
+  ctx.closePath();
+  ctx.fill();
+
+  // chevrons rising up the column on a loop
+  ctx.strokeStyle = 'rgba(255, 170, 90, 0.55)';
+  ctx.lineWidth = Math.max(2, t.width * 0.035);
+  ctx.lineCap = 'round';
+  const arrows = 3;
+  for (let i = 0; i < arrows; i++) {
+    const f = ((time * 0.45 + i / arrows) % 1);
+    const y = t.pos.y - t.height * f;
+    const wing = halfW * 0.3 * (1 - f * 0.4);
+    ctx.globalAlpha = Math.sin(f * Math.PI) * 0.9;
+    ctx.beginPath();
+    ctx.moveTo(t.pos.x - wing, y + wing * 0.7);
+    ctx.lineTo(t.pos.x, y);
+    ctx.lineTo(t.pos.x + wing, y + wing * 0.7);
+    ctx.stroke();
+  }
+  ctx.restore();
+}
+
+/**
+ * A flapping silhouette. `flap` is advanced by the Sim so this stays pure.
+ *
+ * Drawn deliberately bold: at the first pass this was a hairline curve that
+ * read as a pencil squiggle at actual play size, and a hazard the player is
+ * required to see coming has to be legible at a glance — that's a gameplay
+ * requirement, not styling. The stroke spans the full collision radius so what
+ * you see is exactly what you can hit; a bird drawn larger than its hitbox
+ * would feel like a cheat, and smaller would feel like a phantom hit.
+ */
+function drawBird(ctx: CanvasRenderingContext2D, b: Bird): void {
+  const r = b.radius;
+  const dir = b.vx >= 0 ? 1 : -1;
+  const lift = Math.sin(b.flap) * r * 0.55;
+
+  ctx.save();
+  ctx.translate(b.pos.x, b.pos.y);
+  ctx.scale(dir, 1);
+  // a soft light halo so the dark silhouette stays readable against both the
+  // deep sky at the top of the screen and the pale haze near the horizon
+  ctx.strokeStyle = 'rgba(255,255,255,0.5)';
+  ctx.lineWidth = Math.max(5, r * 0.52);
+  ctx.lineCap = 'round';
+  ctx.lineJoin = 'round';
+  for (const pass of [0, 1]) {
+    if (pass === 1) {
+      ctx.strokeStyle = 'rgba(38, 56, 76, 0.95)';
+      ctx.lineWidth = Math.max(3, r * 0.3);
+    }
+    ctx.beginPath();
+    ctx.moveTo(-r, lift * 0.5);
+    ctx.quadraticCurveTo(-r * 0.45, -lift, 0, r * 0.14);
+    ctx.quadraticCurveTo(r * 0.45, -lift, r, lift * 0.5);
+    ctx.stroke();
+  }
+  ctx.restore();
+}
+
+/** A drifting pale-blue cold zone with slow frost sparkles. */
+function drawColdFront(ctx: CanvasRenderingContext2D, c: ColdFront, timeMs: number): void {
+  const time = timeMs / 1000;
+  ctx.save();
+  // Opacities are up from the first pass: a zone that silently disables both
+  // drinking and raining has to be obvious, and against this sky a pale blue
+  // wash at 0.26 alpha was nearly invisible.
+  const grad = ctx.createRadialGradient(c.pos.x, c.pos.y, c.radius * 0.15, c.pos.x, c.pos.y, c.radius);
+  grad.addColorStop(0, 'rgba(186, 224, 248, 0.72)');
+  grad.addColorStop(0.6, 'rgba(150, 198, 234, 0.5)');
+  grad.addColorStop(1, 'rgba(150, 198, 234, 0)');
+  ctx.fillStyle = grad;
+  ctx.beginPath();
+  ctx.arc(c.pos.x, c.pos.y, c.radius, 0, Math.PI * 2);
+  ctx.fill();
+
+  // a soft rim so the boundary you must stay outside of is actually locatable
+  ctx.strokeStyle = 'rgba(255,255,255,0.55)';
+  ctx.lineWidth = Math.max(2, c.radius * 0.035);
+  ctx.beginPath();
+  ctx.arc(c.pos.x, c.pos.y, c.radius * 0.94, 0, Math.PI * 2);
+  ctx.stroke();
+
+  ctx.strokeStyle = 'rgba(255, 255, 255, 0.92)';
+  ctx.lineWidth = Math.max(1.5, c.radius * 0.018);
+  ctx.lineCap = 'round';
+  for (let i = 0; i < 7; i++) {
+    const seed = hash1(i * 3.7);
+    const ang = seed * Math.PI * 2 + time * 0.25;
+    const dist = c.radius * (0.25 + seed * 0.6);
+    const x = c.pos.x + Math.cos(ang) * dist;
+    const y = c.pos.y + Math.sin(ang * 1.3) * dist * 0.7;
+    const s = c.radius * 0.06 * (0.6 + seed * 0.8);
+    ctx.globalAlpha = 0.4 + 0.4 * Math.sin(time * 1.6 + seed * 6);
+    // a tiny six-point frost star
+    for (let k = 0; k < 3; k++) {
+      const a = (k / 3) * Math.PI;
+      ctx.beginPath();
+      ctx.moveTo(x - Math.cos(a) * s, y - Math.sin(a) * s);
+      ctx.lineTo(x + Math.cos(a) * s, y + Math.sin(a) * s);
+      ctx.stroke();
+    }
   }
   ctx.restore();
 }
@@ -735,9 +893,14 @@ export function createRender(): RenderModule {
     for (const m of state.mountains) drawMountain(ctx, m);
     for (const f of state.fields) drawField(ctx, f, state.stats.elapsedMs);
     drawWindHint(ctx, state);
+    for (const t of state.thermals) drawThermal(ctx, t, state.stats.elapsedMs);
+    for (const c of state.coldFronts) drawColdFront(ctx, c, state.stats.elapsedMs);
     drawVapor(ctx, state, state.stats.elapsedMs);
     drawCloud(ctx, state);
     drawRain(ctx, state);
+    // birds fly in front of the cloud so an incoming flock is never hidden
+    // behind it — the player has to be able to see what they're dodging
+    for (const b of state.birds) drawBird(ctx, b);
 
     ctx.restore();
   }

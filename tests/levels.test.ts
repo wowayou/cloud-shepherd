@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { LEVELS, createLevels, evalStars } from '../src/levels/index.ts';
+import { idealRun } from '../tools/autopilot.ts';
 import type { LevelDef, SimStats } from '../src/types.ts';
 
 function makeStats(overrides: Partial<SimStats> = {}): SimStats {
@@ -7,10 +8,10 @@ function makeStats(overrides: Partial<SimStats> = {}): SimStats {
 }
 
 describe('level data', () => {
-  it('defines the tutorial level plus 10 levels, each with both tiers', () => {
-    expect(LEVELS).toHaveLength(11);
+  it('defines the tutorial level plus 15 levels, each with both tiers', () => {
+    expect(LEVELS).toHaveLength(16);
     const ids = LEVELS.map((l) => l.id);
-    expect(ids).toEqual([...Array(11).keys()]);
+    expect(ids).toEqual([...Array(16).keys()]);
     for (const level of LEVELS) {
       expect(level.fields.length).toBeGreaterThan(0);
       expect(level.tiers.easy).toBeDefined();
@@ -76,4 +77,67 @@ describe('createLevels()', () => {
     expect(levels.byId(0)?.name).toBe(LEVELS[0].name);
     expect(levels.byId(999)).toBeUndefined();
   });
+});
+
+describe('level data: round-7 obstacle invariants', () => {
+  // A thermal raises the point the cloud settles at. Over a field, the pointer
+  // position needed to hold the cloud low enough to rain is
+  //   field.y + POINTER_OFFSET (0.07·h) + lift
+  // and once that exceeds the world height the field cannot be watered at all —
+  // a level that looks fine in the data and is silently impossible to finish.
+  it('never puts a thermal column over a field', () => {
+    const WORLD_H = 720;
+    const POINTER_OFFSET_FRAC = 0.07;
+    for (const level of LEVELS) {
+      for (const t of level.thermals ?? []) {
+        for (const f of level.fields) {
+          const halfW = t.width / 2;
+          const overlapsX = Math.abs(f.normX - t.normX) < halfW + f.radius;
+          if (!overlapsX) continue;
+          const neededPointerY = f.normY * WORLD_H + POINTER_OFFSET_FRAC * WORLD_H + t.lift;
+          expect(
+            neededPointerY,
+            `level ${level.id} (${level.name}): thermal at ${t.normX} overlaps field at ${f.normX}, ` +
+              `needing pointer y=${neededPointerY.toFixed(0)} > world ${WORLD_H}`,
+          ).toBeLessThan(WORLD_H);
+        }
+      }
+    }
+  });
+
+  it('keeps bird lanes and cold fronts inside the sky', () => {
+    for (const level of LEVELS) {
+      for (const b of level.birds ?? []) {
+        expect(b.normY).toBeGreaterThan(0.05);
+        expect(b.normY).toBeLessThan(0.8); // above the ground line (0.82)
+        expect(Math.abs(b.speed)).toBeGreaterThan(0);
+      }
+      for (const c of level.coldFronts ?? []) {
+        expect(c.normY - c.radius).toBeGreaterThan(0);
+        expect(c.normY).toBeLessThan(0.82);
+      }
+    }
+  });
+});
+
+describe('every level is actually completable', () => {
+  // Drives the real Sim with the calibration autopilot. This is the guard that
+  // would have caught a thermal parked over a field, a water budget too small
+  // for the fields, or a cold front that never lets go — none of which any
+  // amount of static data validation can see.
+  it('completes all 16 levels on both tiers, and an ideal run earns 3 stars', () => {
+    for (const level of LEVELS) {
+      for (const tier of ['easy', 'hard'] as const) {
+        const r = idealRun(level, tier);
+        expect(r.completed, `level ${level.id} (${level.name}) [${tier}] did not complete`).toBe(true);
+        const stars = evalStars(level, tier, {
+          elapsedMs: r.elapsedMs,
+          waterEvaporated: 0,
+          waterRained: 0,
+          waterWasted: r.waste,
+        });
+        expect(stars, `level ${level.id} (${level.name}) [${tier}] ideal run scored ${stars}★`).toBe(3);
+      }
+    }
+  }, 30_000);
 });

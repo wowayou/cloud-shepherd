@@ -1,5 +1,7 @@
 import type {
+  Bird,
   Cloud,
+  ColdFront,
   Field,
   GameState,
   InputIntent,
@@ -8,6 +10,7 @@ import type {
   RainParticle,
   SimEvent,
   SimModule,
+  Thermal,
   TierParams,
 } from '../types.ts';
 
@@ -34,6 +37,32 @@ const POINTER_OFFSET_Y_FRAC = 0.07;
 // finger softly like a cloud should, but tracks instead of bouncing).
 const PULL_ACCEL = 90; // 1/s^2, how hard the cloud accelerates toward the pointer
 const VEL_DAMPING_PER_SEC = 16; // higher = snappier stop, lower = more drift
+
+// ——— Wind & lift: displacement, not force ———
+// Wind used to be an acceleration added alongside the pointer pull, which made
+// its strength a hostage of the pointer stiffness: steady-state offset was
+// windX/PULL_ACCEL, so round 1's PULL_ACCEL 22→90 silently shrank wind from
+// 0.64 to 0.16 world-units on a ~1150-wide world and L7/L8 ("一点点风"/"阵风来了")
+// stopped delivering the mechanic their names promise.
+//
+// Wind now offsets the *settle point* instead: while dragging, the cloud homes
+// to `pointer + windX` rather than `pointer`, so `windX` IS the displacement in
+// world units and is completely independent of PULL_ACCEL / VEL_DAMPING. ζ≈0.84
+// and ω are untouched, so round 1's verified drag feel survives a wind retune —
+// which was the whole reason wind was left cosmetic last time.
+//
+// Released clouds get their own gentler push (below) rather than the same
+// offset: reusing the settle-point term as a raw acceleration would give a
+// terminal drift of windX·PULL_ACCEL/VEL_DAMPING ≈ 5.6·windX u/s (≈250 u/s at
+// windX=45), which reads as slapstick rather than weather.
+const WIND_FREE_DRIFT_PER_UNIT = 20; // terminal drift ≈ 1.25 · windX units/sec
+
+// Cloud collision radius for bird strikes, as a fraction of worldH. Render draws
+// the blob at ~0.075·worldH; this is deliberately a touch tighter so a hit always
+// looks like a hit rather than a near-miss.
+const CLOUD_HIT_R_FRAC = 0.062;
+const BIRD_HIT_LOSS = 9; // water knocked loose per strike
+const BIRD_HIT_COOLDOWN_MS = 700; // one flock can't drain a cloud by grazing it
 
 const ABSORB_BAND_FRAC = 0.11; // how close to the sea surface counts as "flying low"
 const RAIN_REACH_FRAC = 0.055; // extra radius beyond a field's own radius that still counts as "over it"
@@ -86,6 +115,28 @@ function buildInitialState(level: LevelRuntime): GameState {
     height: m.height * worldH,
   }));
 
+  const thermals: Thermal[] = (level.thermals ?? []).map((t) => ({
+    pos: { x: t.normX * worldW, y: groundY },
+    width: t.width * worldH,
+    height: t.height * worldH,
+    lift: t.lift,
+  }));
+
+  // startN spreads a flock across the world so the level doesn't open with every
+  // bird stacked at the same x.
+  const birds: Bird[] = (level.birds ?? []).map((b) => ({
+    pos: { x: b.startN * worldW, y: b.normY * worldH },
+    vx: b.speed,
+    radius: b.radius * worldH,
+    flap: b.startN * Math.PI * 2,
+  }));
+
+  const coldFronts: ColdFront[] = (level.coldFronts ?? []).map((c) => ({
+    pos: { x: c.normX * worldW, y: c.normY * worldH },
+    radius: c.radius * worldH,
+    vx: c.speed,
+  }));
+
   const params = level.tiers[level.tier];
 
   const cloud: Cloud = {
@@ -94,6 +145,7 @@ function buildInitialState(level: LevelRuntime): GameState {
     water: 0,
     maxWater: params.cloudMaxWater,
     raining: false,
+    chilled: false,
   };
 
   return {
@@ -102,6 +154,9 @@ function buildInitialState(level: LevelRuntime): GameState {
     wind: { baseX: params.windBaseX, gustX: 0 },
     fields,
     mountains,
+    thermals,
+    birds,
+    coldFronts,
     sea: { x0: 0, x1: level.seaWidthN * worldW, y: groundY },
     particles: [],
     stats: { elapsedMs: 0, waterEvaporated: 0, waterRained: 0, waterWasted: 0 },
@@ -155,11 +210,13 @@ export function createSim(): SimModule {
   };
   let rng: () => number = mulberry32(1);
   let rainAccumMs = 0;
+  let birdCooldownMs = 0;
 
   function init(level: LevelRuntime): GameState {
     params = level.tiers[level.tier];
     rng = mulberry32(level.id * 1000 + (level.tier === 'hard' ? 1 : 0) + 1);
     rainAccumMs = 0;
+    birdCooldownMs = 0;
     return buildInitialState(level);
   }
 
@@ -178,14 +235,49 @@ export function createSim(): SimModule {
         : 0;
     const windX = state.wind.baseX + state.wind.gustX;
 
-    // pointer pull + wind + damping
-    let ax = windX;
+    // dynamic obstacles move before the cloud reacts to them
+    for (const b of state.birds) {
+      b.pos.x += b.vx * dt;
+      b.flap += dt * 9;
+      const margin = b.radius * 2;
+      if (b.vx > 0 && b.pos.x > worldW + margin) b.pos.x = -margin;
+      if (b.vx < 0 && b.pos.x < -margin) b.pos.x = worldW + margin;
+    }
+    for (const c of state.coldFronts) {
+      c.pos.x += c.vx * dt;
+      // cold fronts bounce rather than wrap, so they stay in the playfield the
+      // child is working in instead of vanishing off-screen for long stretches
+      if (c.pos.x < c.radius || c.pos.x > worldW - c.radius) {
+        c.vx = -c.vx;
+        c.pos.x = Math.min(worldW - c.radius, Math.max(c.radius, c.pos.x));
+      }
+    }
+
+    // thermal lift: an upward settle-point offset while inside the column,
+    // fading out over its top third so the edge isn't a cliff
+    let liftY = 0;
+    for (const t of state.thermals) {
+      const halfW = t.width / 2;
+      if (Math.abs(state.cloud.pos.x - t.pos.x) > halfW) continue;
+      const above = t.pos.y - state.cloud.pos.y; // height above the ground line
+      if (above < 0 || above > t.height) continue;
+      const fade = Math.min(1, (t.height - above) / (t.height * 0.34));
+      liftY += t.lift * fade;
+    }
+
+    // pointer pull + wind + damping. Wind and thermals shift the point the
+    // cloud settles at rather than adding force, so their strength is
+    // independent of PULL_ACCEL/VEL_DAMPING (see the constants above).
+    let ax = 0;
     let ay = 0;
     if (intent.pointerActive) {
-      const targetX = intent.pointer.x;
-      const targetY = intent.pointer.y - worldH * POINTER_OFFSET_Y_FRAC;
+      const targetX = intent.pointer.x + windX;
+      const targetY = intent.pointer.y - worldH * POINTER_OFFSET_Y_FRAC - liftY;
       ax += (targetX - state.cloud.pos.x) * PULL_ACCEL;
       ay += (targetY - state.cloud.pos.y) * PULL_ACCEL;
+    } else {
+      ax += windX * WIND_FREE_DRIFT_PER_UNIT;
+      ay += -liftY * WIND_FREE_DRIFT_PER_UNIT;
     }
     const damp = Math.max(0, 1 - VEL_DAMPING_PER_SEC * dt);
     state.cloud.vel.x = (state.cloud.vel.x + ax * dt) * damp;
@@ -193,18 +285,62 @@ export function createSim(): SimModule {
     state.cloud.pos.x += state.cloud.vel.x * dt;
     state.cloud.pos.y += state.cloud.vel.y * dt;
 
+    // Clamp to the playfield — and zero the velocity component that got
+    // clamped. Clamping position alone leaves a phantom velocity: while the
+    // finger is held past a wall the spring keeps accelerating toward a target
+    // the cloud can never reach, so it sits visually still while reporting a
+    // large speed (~137 u/s against the floor at PULL_ACCEL 90). Input arms
+    // auto-rain only below NEAR_STILL_SPEED=45, so holding the finger low over
+    // a field — the natural way to water one — silently never started the rain.
     const marginX = worldW * CLOUD_MARGIN_FRAC;
     const marginY = worldH * CLOUD_MARGIN_FRAC;
-    state.cloud.pos.x = Math.min(worldW - marginX, Math.max(marginX, state.cloud.pos.x));
-    state.cloud.pos.y = Math.min(
-      worldH * GROUND_Y_FRAC - marginY,
-      Math.max(worldH * SKY_TOP_FRAC, state.cloud.pos.y),
+    const minX = marginX;
+    const maxX = worldW - marginX;
+    const minY = worldH * SKY_TOP_FRAC;
+    const maxY = worldH * GROUND_Y_FRAC - marginY;
+
+    const clampedX = Math.min(maxX, Math.max(minX, state.cloud.pos.x));
+    if (clampedX !== state.cloud.pos.x) {
+      state.cloud.pos.x = clampedX;
+      state.cloud.vel.x = 0;
+    }
+    const clampedY = Math.min(maxY, Math.max(minY, state.cloud.pos.y));
+    if (clampedY !== state.cloud.pos.y) {
+      state.cloud.pos.y = clampedY;
+      state.cloud.vel.y = 0;
+    }
+
+    // cold fronts: inside one, the cloud is frozen — it can neither drink nor
+    // rain. Emitted as enter/exit edges so Audio and the HUD can react once
+    // instead of every frame.
+    const wasChilled = state.cloud.chilled;
+    state.cloud.chilled = state.coldFronts.some(
+      (c) => Math.hypot(c.pos.x - state.cloud.pos.x, c.pos.y - state.cloud.pos.y) <= c.radius,
     );
+    if (state.cloud.chilled && !wasChilled) events.push({ type: 'chillEnter' });
+    if (!state.cloud.chilled && wasChilled) events.push({ type: 'chillExit' });
+
+    // bird strikes knock water loose, on a cooldown so a single flock brushing
+    // the cloud can't drain it frame-by-frame
+    birdCooldownMs = Math.max(0, birdCooldownMs - dtMs);
+    if (birdCooldownMs === 0 && state.cloud.water > 0) {
+      const hitR = worldH * CLOUD_HIT_R_FRAC;
+      const struck = state.birds.some(
+        (b) => Math.hypot(b.pos.x - state.cloud.pos.x, b.pos.y - state.cloud.pos.y) <= b.radius + hitR,
+      );
+      if (struck) {
+        const loss = Math.min(BIRD_HIT_LOSS, state.cloud.water);
+        state.cloud.water -= loss;
+        state.stats.waterWasted += loss;
+        birdCooldownMs = BIRD_HIT_COOLDOWN_MS;
+        events.push({ type: 'birdHit', amount: loss });
+      }
+    }
 
     // sea absorption (must be flying low over the sea band)
     const overSea = state.cloud.pos.x >= state.sea.x0 && state.cloud.pos.x <= state.sea.x1;
     const lowOverSea = state.sea.y - state.cloud.pos.y <= worldH * ABSORB_BAND_FRAC;
-    if (overSea && lowOverSea && state.cloud.water < state.cloud.maxWater) {
+    if (!state.cloud.chilled && overSea && lowOverSea && state.cloud.water < state.cloud.maxWater) {
       const amt = Math.min(params.evapRate * dt, state.cloud.maxWater - state.cloud.water);
       if (amt > 0) {
         state.cloud.water += amt;
@@ -237,7 +373,7 @@ export function createSim(): SimModule {
 
     // rain
     const wasRaining = state.cloud.raining;
-    state.cloud.raining = intent.rainHeld && state.cloud.water > 0;
+    state.cloud.raining = intent.rainHeld && state.cloud.water > 0 && !state.cloud.chilled;
     if (state.cloud.raining && !wasRaining) events.push({ type: 'rainStart' });
     if (!state.cloud.raining && wasRaining) events.push({ type: 'rainStop' });
 

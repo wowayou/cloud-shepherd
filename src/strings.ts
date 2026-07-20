@@ -46,6 +46,36 @@ export const STRINGS = {
     tapToFlip: '点一下看看',
   },
 
+  // How stars are earned. Hard tier grades on two things — how long you took
+  // and how much water you spilled — and until round 7 the game never said so.
+  stars: {
+    easyAlways: '轻松模式：完成就是三颗星 ⭐⭐⭐',
+    goalTitle: '三星目标',
+    time: '用时',
+    waste: '浪费的水',
+    within: (sec: string) => `${sec} 秒内`,
+    atMost: (n: string) => `不超过 ${n} 滴`,
+    /** Result-screen line, e.g. "用时 12.4 秒（三星要 11 秒内）" */
+    timeDetail: (used: string, need: string) => `用时 ${used} 秒（三星要 ${need} 秒内）`,
+    wasteDetail: (used: string, need: string) => `浪费 ${used} 滴（三星要不超过 ${need} 滴）`,
+    metTime: '时间达标 ✓',
+    metWaste: '省水达标 ✓',
+    hintTime: '下次快一点点就能多一颗星',
+    hintWaste: '下次少浪费点水就能多一颗星',
+    hintBoth: '再快一点、再省一点，就是三颗星',
+    perfect: '完美！又快又省水 🎉',
+  },
+
+  // One-line introductions for the levels that add a new hazard.
+  levelIntro: {
+    wind: '有风啦！云会被吹偏——手指要往上风的方向带一点',
+    gust: '阵风会一阵强一阵弱，跟着风修正就行',
+    thermal: '热气流会把云往上顶——太阳晒热的空气会上升哦',
+    birds: '小心飞鸟！撞上会把云里的水撞掉一些',
+    cold: '冷空气团里云会冻住——不能喝水也不能下雨，绕开它',
+    mixed: '风、热气流、飞鸟都来了，看准了再走',
+  },
+
   tutorial: {
     dragCloud: '用手指按住云朵，拖着它走吧',
     goToSea: '带云朵去海面上低低地飞——太阳会把海水变成水蒸气',

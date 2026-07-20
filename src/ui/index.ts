@@ -1,4 +1,4 @@
-import type { Field, GameState, LevelDef, Profile, Scene, Tier, UiCallbacks, UiModule } from '../types.ts';
+import type { Field, GameState, LevelDef, Profile, Scene, StarBreakdown, Tier, UiCallbacks, UiModule } from '../types.ts';
 import { STRINGS, type FactCardKey } from '../strings.ts';
 
 const AVATARS: { emoji: string; bg: string }[] = [
@@ -90,6 +90,14 @@ const STYLES = `
     border-radius:24px; padding:28px 36px; box-shadow:0 12px 30px rgba(16,34,52,0.25);
     display:flex; flex-direction:column; align-items:center; gap:14px; max-width:420px; pointer-events:auto; }
   .cs-star-row { display:flex; gap:6px; font-size:40px; justify-content:center; }
+  .cs-star-why { display:flex; flex-direction:column; gap:4px; align-items:center; }
+  .cs-star-why-line { font-size:15px; color:#4a627c; }
+  .cs-star-why-line.ok { color:#2f7d4f; font-weight:600; }
+  .cs-star-why-line.miss { color:#8a6a3a; }
+  .cs-star-nudge { font-size:15px; font-weight:700; color:#16324f; margin-top:2px; }
+  .cs-level-goal { font-size:12px; color:#6b7f93; line-height:1.4; }
+  .cs-star-goal { gap:10px; font-size:14px; }
+  .cs-goal-part.miss { color:#c2683a; }
   .cs-star.filled { color:#ffd166; text-shadow:0 2px 0 rgba(196,132,20,0.4); animation:cs-star-pop 0.4s ease backwards; }
   .cs-star.empty { color:rgba(32,52,74,0.2); }
   .cs-fact-card { background:linear-gradient(165deg, #fff7df, #ffedb6); border-radius:16px;
@@ -131,6 +139,9 @@ export function createUi(): UiModule {
   let hasTutorial = false;
   let everFull = false;
   let everOverField = false;
+  /** Hazard-introduction line for the current level, shown for its first seconds. */
+  let levelIntroText: string | undefined;
+  const INTRO_HINT_MS = 7000;
 
   const screens: Partial<Record<Scene, HTMLElement>> = {};
   let profileListEl: HTMLElement;
@@ -145,6 +156,10 @@ export function createUi(): UiModule {
   let hintEl: HTMLElement;
   let pauseOverlay: HTMLElement;
   let resultStarsEl: HTMLElement;
+  let resultStarWhyEl: HTMLElement;
+  let hudStarGoalEl: HTMLElement;
+  /** Star gates for the run in progress; undefined on easy tier (always 3★). */
+  let activeThresholds: { timeMs: [number, number]; waste: [number, number] } | undefined;
   let resultFactEl: HTMLElement;
   let resultFactPromptEl: HTMLElement; // the "tap to flip" hint shown before the fact is revealed
 
@@ -231,6 +246,18 @@ export function createUi(): UiModule {
         });
         row.append(easyBtn, hardBtn);
         card.append(row);
+
+        // State the 3★ bar up front, so "怎么才能三星" is answerable before you
+        // start rather than only after you've already missed it.
+        const gates = level.tiers.hard.starThresholds;
+        if (gates) {
+          card.append(
+            el('div', {
+              className: 'cs-level-goal',
+              text: `⭐⭐⭐ ${STRINGS.stars.within((gates.timeMs[0] / 1000).toFixed(0))} · ${STRINGS.stars.atMost(String(gates.waste[0]))}`,
+            }),
+          );
+        }
       }
       levelGridEl.append(card);
     });
@@ -268,8 +295,14 @@ export function createUi(): UiModule {
       cyclePill.append(icon);
     });
 
+    // Live 3★ progress. Showing the gates *while* playing is what makes them
+    // actionable — a breakdown only on the result screen tells you what went
+    // wrong after it's too late to steer.
+    hudStarGoalEl = el('div', { className: 'cs-pill cs-star-goal' });
+    hudStarGoalEl.style.display = 'none';
+
     const leftGroup = el('div', { className: 'cs-row' });
-    leftGroup.append(hudLevelEl, hudBloomEl, cyclePill);
+    leftGroup.append(hudLevelEl, hudBloomEl, cyclePill, hudStarGoalEl);
 
     const waterPill = el('div', { className: 'cs-pill' });
     const waterTrack = el('div', { className: 'cs-water-track' });
@@ -339,6 +372,12 @@ export function createUi(): UiModule {
     card.append(el('div', { text: STRINGS.result.subtitleAllBloom }));
     resultStarsEl = el('div', { className: 'cs-star-row', text: '' });
     card.append(resultStarsEl);
+
+    // Why you got N stars. Until round 7 the game showed a star count and never
+    // said what it was measuring — the player's literal question was
+    // "怎么才能三星呀，你也没明确说明".
+    resultStarWhyEl = el('div', { className: 'cs-star-why' });
+    card.append(resultStarWhyEl);
 
     // Fact card with a prompt-then-flip reveal: shows the "tap to look" prompt
     // first, and only flips to the full fact text on tap. The classic "did you
@@ -410,7 +449,16 @@ export function createUi(): UiModule {
       hudLevelEl.textContent = d.level.id === 0 ? `📖 ${d.level.name}` : `${d.level.id} · ${d.level.name}`;
       paused = false;
       pauseOverlay.style.display = 'none';
-      hintEl.style.display = hasTutorial ? 'block' : 'none';
+
+      activeThresholds = d.level.tiers[d.tier].starThresholds;
+      hudStarGoalEl.style.display = activeThresholds ? 'flex' : 'none';
+
+      // A level that adds a new hazard says so for its opening seconds. Reuses
+      // the tutorial hint slot, which is free on every level except level 0.
+      const introKey = d.level.introKey as keyof typeof STRINGS.levelIntro | undefined;
+      levelIntroText = introKey ? STRINGS.levelIntro[introKey] : undefined;
+      hintEl.style.display = hasTutorial || levelIntroText ? 'block' : 'none';
+      if (levelIntroText) hintEl.textContent = levelIntroText;
     }
   }
 
@@ -439,7 +487,70 @@ export function createUi(): UiModule {
 
     if (hasTutorial && !paused) {
       hintEl.textContent = computeHintText(state);
+    } else if (levelIntroText && !paused) {
+      // fade the hazard note out once the player has had a few seconds with it
+      hintEl.style.display = state.stats.elapsedMs < INTRO_HINT_MS ? 'block' : 'none';
     }
+
+    if (activeThresholds) {
+      const [t3] = activeThresholds.timeMs;
+      const [w3] = activeThresholds.waste;
+      const sec = (state.stats.elapsedMs / 1000).toFixed(1);
+      const waste = Math.round(state.stats.waterWasted);
+      const timeOk = state.stats.elapsedMs <= t3;
+      const wasteOk = state.stats.waterWasted <= w3;
+      hudStarGoalEl.innerHTML = '';
+      hudStarGoalEl.append(
+        el('span', { className: `cs-goal-part ${timeOk ? '' : 'miss'}`, text: `⏱ ${sec}/${(t3 / 1000).toFixed(0)}s` }),
+        el('span', { className: `cs-goal-part ${wasteOk ? '' : 'miss'}`, text: `💧 ${waste}/${w3}` }),
+      );
+      hudStarGoalEl.title = `${STRINGS.stars.goalTitle}: ${STRINGS.stars.within((t3 / 1000).toFixed(0))} · ${STRINGS.stars.atMost(String(w3))}`;
+    }
+  }
+
+  /**
+   * Spells out the two things stars are graded on — elapsed time and spilled
+   * water — with the player's actual numbers next to the 3★ targets, and a
+   * one-line nudge naming which one to work on next. Easy tier just says it
+   * always awards three, so nobody goes hunting for a gate that isn't there.
+   */
+  function renderStarWhy(stars: number, b?: StarBreakdown): void {
+    resultStarWhyEl.innerHTML = '';
+    if (!b) {
+      resultStarWhyEl.style.display = 'none';
+      return;
+    }
+    resultStarWhyEl.style.display = 'flex';
+
+    if (!b.thresholds) {
+      resultStarWhyEl.append(el('div', { className: 'cs-star-why-line', text: STRINGS.stars.easyAlways }));
+      return;
+    }
+
+    const [t3] = b.thresholds.timeMs;
+    const [w3] = b.thresholds.waste;
+    const usedSec = (b.elapsedMs / 1000).toFixed(1);
+    const needSec = (t3 / 1000).toFixed(0);
+    const usedWaste = Math.round(b.waste);
+    const timeOk = b.elapsedMs <= t3;
+    const wasteOk = b.waste <= w3;
+
+    const timeLine = el('div', {
+      className: `cs-star-why-line ${timeOk ? 'ok' : 'miss'}`,
+      text: `${timeOk ? '✓' : '·'} ${STRINGS.stars.timeDetail(usedSec, needSec)}`,
+    });
+    const wasteLine = el('div', {
+      className: `cs-star-why-line ${wasteOk ? 'ok' : 'miss'}`,
+      text: `${wasteOk ? '✓' : '·'} ${STRINGS.stars.wasteDetail(String(usedWaste), String(w3))}`,
+    });
+    resultStarWhyEl.append(timeLine, wasteLine);
+
+    let nudge: string;
+    if (stars >= 3) nudge = STRINGS.stars.perfect;
+    else if (!timeOk && !wasteOk) nudge = STRINGS.stars.hintBoth;
+    else if (!timeOk) nudge = STRINGS.stars.hintTime;
+    else nudge = STRINGS.stars.hintWaste;
+    resultStarWhyEl.append(el('div', { className: 'cs-star-nudge', text: nudge }));
   }
 
   function computeHintText(state: GameState): string {
@@ -456,7 +567,7 @@ export function createUi(): UiModule {
     return STRINGS.tutorial.holdToRain;
   }
 
-  function showResult(stars: number, factCardText?: string): void {
+  function showResult(stars: number, factCardText?: string, breakdown?: StarBreakdown): void {
     resultStarsEl.innerHTML = '';
     for (let i = 0; i < 3; i++) {
       const filled = i < stars;
@@ -464,6 +575,8 @@ export function createUi(): UiModule {
       if (filled) star.style.animationDelay = `${i * 0.12}s`;
       resultStarsEl.append(star);
     }
+
+    renderStarWhy(stars, breakdown);
     if (factCardText) {
       // Stash the final text on the prompt element and start in the pre-flip
       // prompt state; the click handler on the card flips to it.

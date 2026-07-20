@@ -157,7 +157,12 @@ export function bootGame(canvas: HTMLCanvasElement, uiRoot: HTMLElement): () => 
         const factKey = currentLevelDef.factCardKey as FactCardKey | undefined;
         scene = 'result';
         ui.setScene('result');
-        ui.showResult(stars, factKey ? factCardText(factKey) : undefined);
+        ui.showResult(stars, factKey ? factCardText(factKey) : undefined, {
+          tier: currentTier,
+          elapsedMs: e.stats.elapsedMs,
+          waste: e.stats.waterWasted,
+          thresholds: currentLevelDef.tiers[currentTier].starThresholds,
+        });
       }
     }
   }

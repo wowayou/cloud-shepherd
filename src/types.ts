@@ -48,11 +48,47 @@ export interface Cloud {
   water: number;
   maxWater: number;
   raining: boolean;
+  /** True while inside a ColdFront: the cloud can neither absorb nor rain. */
+  chilled: boolean;
 }
 
+/**
+ * Wind is expressed as a *steady-state displacement in world units*, not as an
+ * acceleration: `baseX: 45` means a held cloud settles 45 world-units downwind
+ * of the player's finger. See sim/index.ts for why this axis is deliberately
+ * independent of the pointer-follow spring constants.
+ */
 export interface WindState {
   baseX: number;
   gustX: number;
+}
+
+/** A rising column of warm air over hot ground: lifts the cloud while inside. */
+export interface Thermal {
+  /** Column centre x; `pos.y` is the ground line it rises from. */
+  pos: Vec2;
+  width: number;
+  /** How far above the ground the column still lifts. */
+  height: number;
+  /** Upward settle-point offset in world units, same units as WindState. */
+  lift: number;
+}
+
+/** A flock drifting horizontally; knocks water loose from a cloud it hits. */
+export interface Bird {
+  pos: Vec2;
+  /** Signed horizontal speed in world units/sec; wraps at the world edges. */
+  vx: number;
+  radius: number;
+  /** Wing-flap phase, advanced by the sim so Render stays a pure function. */
+  flap: number;
+}
+
+/** A slow-drifting cold zone: inside it the cloud can neither drink nor rain. */
+export interface ColdFront {
+  pos: Vec2;
+  radius: number;
+  vx: number;
 }
 
 export interface RainParticle {
@@ -76,6 +112,9 @@ export interface GameState {
   wind: WindState;
   fields: Field[];
   mountains: Mountain[];
+  thermals: Thermal[];
+  birds: Bird[];
+  coldFronts: ColdFront[];
   sea: SeaRegion;
   particles: RainParticle[];
   stats: SimStats;
@@ -103,6 +142,9 @@ export type SimEvent =
   | { type: 'fieldBloom'; fieldId: number }
   | { type: 'fieldOverwater'; fieldId: number }
   | { type: 'mountainLeak'; amount: number }
+  | { type: 'birdHit'; amount: number }
+  | { type: 'chillEnter' }
+  | { type: 'chillExit' }
   | { type: 'levelComplete'; stats: SimStats };
 
 export type UiSound = { type: 'uiTap' } | { type: 'star'; index: number };
@@ -153,7 +195,10 @@ export interface AudioModule {
 export type Tier = 'easy' | 'hard';
 
 export interface TierParams {
+  /** Steady-state downwind displacement of a held cloud, in world units
+   *  (world is 720 tall). Not an acceleration — see WindState. */
   windBaseX: number;
+  /** Peak extra displacement of the oscillating gust, same units. */
   gustAmp: number;
   gustPeriodMs: number;
   cloudMaxWater: number;
@@ -175,10 +220,18 @@ export interface LevelDef {
   name: string;
   fields: FieldDef[];
   mountains?: { normX: number; normY: number; width: number; height: number }[];
+  /** Dynamic obstacles. All positions/sizes are normalized like FieldDef;
+   *  `lift`/`speed` are in world units (per second for speeds). */
+  thermals?: { normX: number; width: number; height: number; lift: number }[];
+  birds?: { normY: number; speed: number; radius: number; startN: number }[];
+  coldFronts?: { normX: number; normY: number; radius: number; speed: number }[];
   seaWidthN: number;
   tiers: Record<Tier, TierParams>;
   factCardKey?: string;
   tutorial?: TutorialStep[];
+  /** Key into STRINGS.levelIntro — a one-line "here's the new hazard" note
+   *  shown for the opening seconds of a level that introduces a mechanic. */
+  introKey?: string;
 }
 
 export interface LevelRuntime extends LevelDef {
@@ -251,9 +304,18 @@ export interface UiCallbacks {
   onRainHold(held: boolean): void;
 }
 
+/** Everything the result screen needs to explain *why* the player got N stars. */
+export interface StarBreakdown {
+  tier: Tier;
+  elapsedMs: number;
+  waste: number;
+  /** Absent on easy tier, which always awards 3. */
+  thresholds?: { timeMs: [number, number]; waste: [number, number] };
+}
+
 export interface UiModule {
   mount(root: HTMLElement, cb: UiCallbacks): void;
   setScene(scene: Scene, data?: unknown): void;
   updateHud(state: GameState, tier: Tier): void;
-  showResult(stars: number, factCardText?: string): void;
+  showResult(stars: number, factCardText?: string, breakdown?: StarBreakdown): void;
 }

@@ -41,7 +41,70 @@ actually did the work.
 
 | 6 | Audio (bugfix) | main session (Opus) | done | **Round 5's rain-sound rebuild made the rain inaudible.** It set gain `0.18→0.09` reasoning "half the old volume", but `pinkNoiseBuffer` already bakes in a `*0.11` scale that the old white-noise buffer never had, and the 850Hz lowpass put the remainder under the rolloff of the laptop/phone speakers this actually gets played on. Measured through an OfflineAudioContext in headless Chromium: **-45.4 dBFS overall, only 58% surviving a >500Hz speaker ⇒ ~-50 dBFS effective** — silent in any real room. Fixed to pink noise → lowpass 1600Hz → highpass 160Hz (drops sub-bass rumble small speakers can't reproduce anyway, which was only eating headroom) → gain 0.28: now **-38.2 dBFS with 93% surviving >500Hz**, ~11 dB louder where it counts while staying below the old harsh version overall, so the "不难受" character round 5 was chasing is preserved. Verified additionally by a real Playwright playthrough (skim sea → 100% water → hold over field): rain loop starts and stops cleanly, no console errors |
 
-### Known shortcut (decided, not just flagged): wind is cosmetic now, not a real difficulty lever
+| 7 | cross-module (wind, obstacles, levels, stars) | main session (Opus) | done | Driven by a second playtest ("怎么才能三星呀，你也没明确说明；加风阻；通关之后的滚动条有时候会莫名卡住；再多设计一些关卡，加点动态障碍"). **Wind is a real mechanic again** — see the rewritten section below; the round-2 "wind is cosmetic" decision is now reversed with the user's explicit go-ahead. **Three dynamic obstacles** (热气流 / 飞鸟群 / 冷空气团) with sim, render, audio and per-obstacle events. **Five new levels (11–15)**, one per obstacle then two combining them. **Star criteria are finally stated**: the 3★ gate on the level-select card, a live `⏱ x/ys 💧 a/b` pill in the HUD, and a result-screen breakdown naming which gate you missed. **Two bugs found and fixed en route** — the level-select grid was unscrollable (`ec2fffc`) and clamping left phantom velocity (below). Tests 21 → 32; `tools/` gained the calibration rig round 2 used but never committed |
+
+### The clamped-spring bug: holding low over a field silently did nothing
+
+Found in round 7 while scripting a Playwright playthrough that kept failing to
+water anything. The cloud's position was clamped to the playfield but its
+**velocity was not**. Hold the finger low — which is exactly how you water a
+field — and the spring keeps accelerating toward a target below the floor the
+cloud can never reach, so it sits visually still while carrying ~137 world-units/sec
+of phantom speed (`(target−floor)·PULL_ACCEL/VEL_DAMPING`).
+
+Input arms auto-rain only under `NEAR_STILL_SPEED = 45`. So "hold still over the
+field", the game's primary rain gesture and the one the tutorial teaches, did
+nothing at all whenever the player held low — and holding low is the natural way
+to do it. `npm test` was fully green throughout; the bug needed either a real
+playthrough or the deterministic probe now in `tests/sim.test.ts`.
+
+Fix: zero the velocity component that got clamped, which is also just what
+hitting a wall should do. Guarded by two regression tests (floor and side walls).
+
+### Wind, resolved: a displacement axis independent of the pointer spring
+
+**This supersedes the round-2 decision that wind stays cosmetic.** That decision
+was explicitly conditioned on not re-opening it without the user, and on
+2026-07-20 the user re-opened it ("加风阻") and picked the model below from three
+options.
+
+Wind used to be an acceleration added alongside the pointer pull, which made its
+strength a hostage of pointer stiffness: steady-state offset was
+`windX / PULL_ACCEL`, so round 1's `PULL_ACCEL 22→90` silently shrank wind from
+0.64 to 0.16 world-units on a ~1150-wide world.
+
+Wind now offsets the **settle point**: while dragging, the cloud homes to
+`pointer + windX` instead of `pointer`, so `windX` *is* the displacement in world
+units and is completely independent of `PULL_ACCEL`/`VEL_DAMPING`. ζ≈0.84 and ω
+are untouched, so round 1's verified drag feel survives any future wind retune —
+which was the actual reason wind was left cosmetic the first time. Verified by
+deterministic probe: a held cloud parks within 1 unit of the declared offset at
+0/20/45/60/−40.
+
+Released clouds get a separate, gentler push (`WIND_FREE_DRIFT_PER_UNIT = 20`,
+terminal drift ≈1.25·windX u/s). Reusing the settle-point term as a raw
+acceleration would give ≈5.6·windX ≈ 250 u/s, which reads as slapstick rather
+than weather.
+
+L7/L8 now deliver what their names promise: L7 parks the cloud 34u downwind
+(~⅓ of a field's ~86u rain-catch radius, so you must aim upwind to water
+accurately), L8 swings between ~2u and ~54u on a 3.2s gust cycle.
+
+### Known shortcut (round 7): obstacles are per-level, not per-tier
+
+Easy and hard face the same thermals, birds and cold fronts. Easy stays gentle
+through its existing levers instead — a 150-unit cloud (vs 90) makes a 9-unit
+bird strike ~6% rather than 10% of the budget, faster evap/rain rates shorten
+every exposure window, and easy never grades stars at all.
+
+Be honest about the cost: a 6-year-old on easy still meets a cold front that
+stops their rain with no way to tune it down, and the only mitigations are the
+ice-blue cloud tint, the chill sound, and the one-line intro hint. Accepted
+because per-tier obstacle tables would double the tuning surface for a tier
+that has no failure pressure — but if the younger kid bounces off levels 11–15,
+this is the first thing to revisit.
+
+### Superseded: wind was cosmetic (round 2 → round 7)
 
 Found by the round 2 Levels agent while rebalancing. A held cloud's
 steady-state wind displacement is `windX / PULL_ACCEL`. Before round 1's
@@ -50,7 +113,9 @@ it's `14/90 ≈ 0.16` — negligible on a ~1150-unit-wide world. L7/L8 (which
 exist specifically to introduce wind/gusts) now play indistinguishably
 from a calm level.
 
-**Decision (2026-07-19): accept this, don't fix it.** Three options were on
+**Decision (2026-07-19): accept this, don't fix it.** — *reversed 2026-07-20,
+see "Wind, resolved" above. Kept here because the reasoning still explains why
+the fix had to be an independent axis rather than a bigger `windBaseX`.* Three options were on
 the table — scale wind relative to `PULL_ACCEL`, make wind act as drag on
 released-cloud drift instead of a constant force fought while held, or
 just accept wind as flavor and rely on `cloudMaxWater`/mountains for real
@@ -84,10 +149,25 @@ Run before you start, and again before you hand back:
 ```
 npm install
 npm run typecheck   # must stay clean
-npm test            # 21 tests must stay green
+npm test            # 32 tests must stay green
 npm run build        # must succeed
 npm run dev          # then ACTUALLY PLAY IT in a browser — see below
 ```
+
+Tuning star gates or adding levels? Run the calibration rig:
+
+```
+npx vite-node tools/calibrate.ts
+```
+
+It drives the real Sim with the autopilot in `tools/autopilot.ts` and prints,
+per level and tier, the ideal-run time and waste against the declared gates,
+flagging anything outside the house band (3★ ≈ 2× ideal, 2★ ≈ 3×). The same
+autopilot backs the "every level is completable on both tiers" test — but note
+what it cannot see: it can aim off-screen, so it will happily "complete" a level
+whose field is unreachable for a real finger. That is what the
+thermal-over-field invariant test in `tests/levels.test.ts` is for, and it
+caught exactly that in level 15 during round 7.
 
 **Do not skip the manual browser check.** While building this, an inline
 CSS rule (`#ui-root > * { pointer-events: auto }`) made the full-screen HUD

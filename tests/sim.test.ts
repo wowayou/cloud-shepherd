@@ -377,3 +377,83 @@ describe('sim: clamping must not leave phantom velocity', () => {
     expect(Math.abs(state.cloud.vel.x)).toBeLessThan(NEAR_STILL_SPEED);
   });
 });
+
+describe('sim: round 8 — sun, mass-vs-wind, cold-front thaw', () => {
+  it('a heavier (fuller) cloud deflects less in the same wind than an empty one', () => {
+    const level = makeLevel({
+      tier: 'hard',
+      tiers: {
+        easy: { windBaseX: 0, gustAmp: 0, gustPeriodMs: 4000, cloudMaxWater: 120, evapRate: 60, rainRate: 60 },
+        hard: { windBaseX: 45, gustAmp: 0, gustPeriodMs: 4000, cloudMaxWater: 120, evapRate: 60, rainRate: 60 },
+      },
+    });
+
+    function settleOffset(startWater: number): number {
+      const sim = createSim();
+      const state = sim.init(level);
+      state.cloud.water = startWater;
+      const pointerX = level.worldW * 0.5;
+      const intent: InputIntent = { pointerActive: true, pointer: { x: pointerX, y: level.worldH * 0.4 }, rainHeld: false };
+      runSteps(sim, state, intent, 400);
+      return state.cloud.pos.x - pointerX;
+    }
+
+    const emptyOffset = settleOffset(0);
+    const fullOffset = settleOffset(120);
+    expect(emptyOffset).toBeGreaterThan(0);
+    expect(fullOffset).toBeGreaterThan(0);
+    expect(fullOffset).toBeLessThan(emptyOffset * 0.7); // meaningfully less deflected
+  });
+
+  it('the sun advances over elapsed time and its intensity follows a dawn->noon->dusk arc', () => {
+    const level = makeLevel({ tiers: { ...makeLevel().tiers, hard: { ...makeLevel().tiers.hard, dayLengthMs: 4000 } } });
+    const sim = createSim();
+    const state = sim.init({ ...level, tier: 'hard' });
+    const start = state.sun.intensity;
+    const intent: InputIntent = { pointerActive: false, pointer: { x: 0, y: 0 }, rainHeld: false };
+    runSteps(sim, state, intent, 60); // 1s of a 4s day -> should be brighter (climbing toward noon)
+    expect(state.sun.intensity).toBeGreaterThan(start);
+    expect(state.sun.intensity).toBeLessThanOrEqual(1);
+    expect(state.sun.intensity).toBeGreaterThanOrEqual(0.28); // never fully dark
+  });
+
+  it('sun intensity multiplies evaporation rate, not just a cosmetic number', () => {
+    const dim = makeLevel({
+      tiers: {
+        easy: { windBaseX: 0, gustAmp: 0, gustPeriodMs: 4000, cloudMaxWater: 999, evapRate: 60, rainRate: 60, dayLengthMs: 1_000_000_000 },
+        hard: { windBaseX: 0, gustAmp: 0, gustPeriodMs: 4000, cloudMaxWater: 999, evapRate: 60, rainRate: 60, dayLengthMs: 1_000_000_000 },
+      },
+    });
+    const sim = createSim();
+    const state = sim.init(dim);
+    // day length astronomically long -> dayPhase barely moves -> intensity
+    // stays pinned near its DAY_START_PHASE value for the whole run
+    const intent: InputIntent = { pointerActive: true, pointer: { x: dim.worldW * 0.15, y: dim.worldH * 0.8 }, rainHeld: false };
+    runSteps(sim, state, intent, 60);
+    const gained = state.cloud.water;
+    expect(gained).toBeLessThan(60 * (60 / 60)); // less than the nominal evapRate*dt would give at intensity 1
+    expect(gained).toBeGreaterThan(0);
+  });
+
+  it('cold front: the cloud stays frozen for a thaw period after leaving, not instantly', () => {
+    const level = makeLevel({
+      seaWidthN: 1,
+      coldFronts: [{ normX: 0.5, normY: 0.85, radius: 0.3, speed: 0 }],
+    });
+    const sim = createSim();
+    const state = sim.init(level);
+    const inside: InputIntent = { pointerActive: true, pointer: { x: level.worldW * 0.5, y: level.worldH * 0.85 }, rainHeld: false };
+    runSteps(sim, state, inside, 60);
+    expect(state.cloud.chilled).toBe(true);
+
+    // step immediately outside the front
+    const outside: InputIntent = { pointerActive: true, pointer: { x: level.worldW * 0.99, y: level.worldH * 0.4 }, rainHeld: false };
+    sim.step(state, outside, DT);
+    // one frame later: must still be chilled (thaw hasn't elapsed), proving
+    // there's a real cost to leaving rather than an instant on/off toggle
+    expect(state.cloud.chilled).toBe(true);
+
+    runSteps(sim, state, outside, 200); // well past the thaw window
+    expect(state.cloud.chilled).toBe(false);
+  });
+});

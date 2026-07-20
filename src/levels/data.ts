@@ -87,6 +87,13 @@ export const LEVELS: LevelDef[] = [
     id: 3,
     name: '云朵变重了',
     seaWidthN: 0.24,
+    // Round 8: the first obstacle now shows up here instead of level 11, per
+    // the user's "从第三关就可以开始加更多的障碍了". A small, gentle thermal
+    // sits in open sky mid-transit — clear of the field (|0.82-0.5|=0.32 >
+    // halfW 0.04 + radius 0.08), so it costs nothing to ignore on this level's
+    // two required sea trips, but it's the player's first look at "warm air
+    // rises" before any level asks them to route around one.
+    thermals: [{ normX: 0.5, width: 0.08, height: 0.3, lift: 40 }],
     fields: [{ normX: 0.82, normY: 0.83, targetMin: 115, targetMax: 190, radius: 0.08 }],
     // Thirsty single field (needs 115) but the hard cloud only holds 80 → two sea
     // trips. Ideal ~7.3s.
@@ -95,6 +102,7 @@ export const LEVELS: LevelDef[] = [
       hard: hard({ cloudMaxWater: 80, starThresholds: stars(14000, 22000, 15, 40) }),
     },
     factCardKey: 'cloudForms',
+    introKey: 'thermal',
   },
   {
     id: 4,
@@ -125,6 +133,11 @@ export const LEVELS: LevelDef[] = [
     id: 6,
     name: '三姐妹田',
     seaWidthN: 0.22,
+    // Second obstacle in the ramp: a single slow flock at a natural transit
+    // altitude (normY 0.4, between the sea-skim band and the fields). Gentle on
+    // purpose — one flock, modest speed — since this level's own difficulty
+    // already comes from three fields over one cloud.
+    birds: [{ normY: 0.4, speed: 80, radius: 0.032, startN: 0.5 }],
     fields: [
       { normX: 0.5, normY: 0.85, targetMin: 30, targetMax: 80, radius: 0.05 },
       { normX: 0.72, normY: 0.82, targetMin: 50, targetMax: 120, radius: 0.07 },
@@ -132,6 +145,7 @@ export const LEVELS: LevelDef[] = [
     ],
     // Three fields (sum 120) over one hard cloud (90) → two trips. Ideal ~8.3s.
     tiers: { easy: easy(), hard: hard({ starThresholds: stars(16000, 26000, 18, 42) }) },
+    introKey: 'birds',
   },
   {
     id: 7,
@@ -164,8 +178,8 @@ export const LEVELS: LevelDef[] = [
     // downwind on a 3.2s cycle, so a held cloud visibly surges and eases — you
     // have to keep correcting rather than setting one offset and forgetting it.
     tiers: {
-      easy: easy({ windBaseX: 12, gustAmp: 10, gustPeriodMs: 3600 }),
-      hard: hard({ windBaseX: 28, gustAmp: 26, gustPeriodMs: 3200, starThresholds: stars(12000, 18000, 18, 44) }),
+      easy: easy({ windBaseX: 12, gustAmp: 10, gustPeriodMs: 8600 }),
+      hard: hard({ windBaseX: 28, gustAmp: 26, gustPeriodMs: 7200, starThresholds: stars(12000, 18000, 18, 44) }),
     },
     factCardKey: 'cycle',
     introKey: 'gust',
@@ -174,6 +188,11 @@ export const LEVELS: LevelDef[] = [
     id: 9,
     name: '省着点用',
     seaWidthN: 0.2,
+    // Third obstacle in the ramp: a small, slow cold front parked off in a
+    // corner (normX 0.35, well clear of all three fields' direct lines), so
+    // routing around it costs a little planning rather than being unavoidable —
+    // this level's real difficulty is still the water budget.
+    coldFronts: [{ normX: 0.35, normY: 0.55, radius: 0.12, speed: 30 }],
     fields: [
       { normX: 0.5, normY: 0.85, targetMin: 40, targetMax: 95, radius: 0.055 },
       { normX: 0.72, normY: 0.82, targetMin: 40, targetMax: 95, radius: 0.055 },
@@ -183,10 +202,11 @@ export const LEVELS: LevelDef[] = [
     // two carefully-rationed trips. Ideal ~8.3s. This level's difficulty comes from
     // the tight cloudMaxWater, which the new physics does NOT trivialise.
     tiers: {
-      easy: easy({ windBaseX: 12, gustAmp: 8, gustPeriodMs: 3600 }),
-      hard: hard({ windBaseX: 30, gustAmp: 22, gustPeriodMs: 3200, cloudMaxWater: 70, starThresholds: stars(17000, 26000, 20, 46) }),
+      easy: easy({ windBaseX: 12, gustAmp: 8, gustPeriodMs: 8600 }),
+      hard: hard({ windBaseX: 30, gustAmp: 22, gustPeriodMs: 7200, cloudMaxWater: 70, starThresholds: stars(17000, 26000, 20, 46) }),
     },
     factCardKey: 'saveWater',
+    introKey: 'cold',
   },
   {
     id: 10,
@@ -202,8 +222,8 @@ export const LEVELS: LevelDef[] = [
     // each routed over the peak. The genuine challenge of the set, so the 3★ gate
     // is the least forgiving relative to its ideal time. Ideal ~10.4s.
     tiers: {
-      easy: easy({ windBaseX: 14, gustAmp: 10, gustPeriodMs: 3400 }),
-      hard: hard({ windBaseX: 36, gustAmp: 28, gustPeriodMs: 3000, cloudMaxWater: 65, starThresholds: stars(21000, 32000, 24, 54) }),
+      easy: easy({ windBaseX: 14, gustAmp: 10, gustPeriodMs: 7800 }),
+      hard: hard({ windBaseX: 36, gustAmp: 28, gustPeriodMs: 8000, cloudMaxWater: 65, starThresholds: stars(21000, 32000, 24, 54) }),
     },
   },
 
@@ -320,8 +340,8 @@ export const LEVELS: LevelDef[] = [
     // between the sea and the first field, the thermal guards the far two, and
     // the cold front patrols the approach to the last one.
     tiers: {
-      easy: easy({ windBaseX: 14, gustAmp: 10, gustPeriodMs: 3400 }),
-      hard: hard({ windBaseX: 34, gustAmp: 24, gustPeriodMs: 3000, cloudMaxWater: 62, starThresholds: stars(26000, 40000, 30, 62) }),
+      easy: easy({ windBaseX: 14, gustAmp: 10, gustPeriodMs: 7800 }),
+      hard: hard({ windBaseX: 34, gustAmp: 24, gustPeriodMs: 8000, cloudMaxWater: 62, starThresholds: stars(26000, 40000, 30, 62) }),
     },
   },
 ];

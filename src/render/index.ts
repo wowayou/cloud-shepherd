@@ -39,15 +39,20 @@ function hash1(n: number): number {
   return s - Math.floor(s);
 }
 
-function drawSky(ctx: CanvasRenderingContext2D, w: number, h: number, timeMs: number): void {
+function drawSky(ctx: CanvasRenderingContext2D, w: number, h: number, timeMs: number, sunIntensity: number): void {
+  // A weak dawn/dusk sun tints the whole sky slightly warmer and dimmer, not
+  // just its own disc — real skies do this, and it's a second, ambient channel
+  // (independent of the sun's own glow) for "the sun's strength is changing"
+  // to reach the player peripherally, without a caption.
+  const dim = 1 - sunIntensity;
   const grad = ctx.createLinearGradient(0, 0, 0, h);
-  grad.addColorStop(0, '#8fd0ee');
-  grad.addColorStop(0.6, '#bfe6f5');
+  grad.addColorStop(0, toRgb(mixTuple([143, 208, 238], [232, 186, 150], dim * 0.35)));
+  grad.addColorStop(0.6, toRgb(mixTuple([191, 230, 245], [237, 205, 176], dim * 0.35)));
   grad.addColorStop(1, '#e8f6ee');
   ctx.fillStyle = grad;
   ctx.fillRect(0, 0, w, h);
 
-  drawSun(ctx, w, h, timeMs);
+  drawSun(ctx, w, h, timeMs, sunIntensity);
 
   // a couple of slow, purely decorative background puffs
   ctx.save();
@@ -65,39 +70,62 @@ function drawSky(ctx: CanvasRenderingContext2D, w: number, h: number, timeMs: nu
 // The sun sits over the sea side of the world — it's the engine of the whole
 // water cycle (it drives the evaporation the child sees as rising vapor), so
 // it deserves to be visibly present, gently pulsing, not just implied.
-function drawSun(ctx: CanvasRenderingContext2D, w: number, h: number, timeMs: number): void {
+/**
+ * `sunIntensity` (0..1, the same value that drives evaporation and thermal
+ * lift in Sim) now visibly changes the sun itself: a weak sun is smaller,
+ * paler and duskier-toned with short, sparse rays; a strong one is bigger,
+ * whiter-hot and throws long, busy rays. Round 8 — this is the fix for
+ * "太阳也要有强弱变化，完全模拟...通过游戏和画面看懂": before this the sun's
+ * disc was purely time-animated (pulse/spin) and looked identical regardless
+ * of what its intensity was actually doing to the rest of the simulation.
+ */
+function drawSun(ctx: CanvasRenderingContext2D, w: number, h: number, timeMs: number, sunIntensity: number): void {
   const cx = w * 0.1;
   const cy = h * 0.13;
-  const r = h * 0.055;
+  const strength = Math.max(0, Math.min(1, sunIntensity));
+  const r = h * (0.042 + 0.02 * strength);
   const pulse = 1 + Math.sin(timeMs / 1400) * 0.04;
 
+  // dawn/dusk skews toward orange-red; noon is near-white-gold
+  const weakColor: RgbTuple = [255, 160, 96];
+  const strongColor: RgbTuple = [255, 246, 201];
+  const bodyInner = toRgb(mixTuple(weakColor, strongColor, strength));
+  const bodyOuter = toRgb(mixTuple([230, 130, 70], [255, 209, 102], strength));
+  const haloColor = mixTuple([255, 170, 110], [255, 236, 160], strength);
+
   ctx.save();
-  // halo
-  const halo = ctx.createRadialGradient(cx, cy, r * 0.3, cx, cy, r * 2.6 * pulse);
-  halo.addColorStop(0, 'rgba(255, 236, 160, 0.55)');
-  halo.addColorStop(1, 'rgba(255, 236, 160, 0)');
+  // halo — brighter and wider at full strength
+  const haloR = r * (2.1 + 0.7 * strength) * pulse;
+  const halo = ctx.createRadialGradient(cx, cy, r * 0.3, cx, cy, haloR);
+  halo.addColorStop(0, `rgba(${haloColor[0]}, ${haloColor[1]}, ${haloColor[2]}, ${(0.3 + 0.35 * strength).toFixed(3)})`);
+  halo.addColorStop(1, `rgba(${haloColor[0]}, ${haloColor[1]}, ${haloColor[2]}, 0)`);
   ctx.fillStyle = halo;
   ctx.beginPath();
-  ctx.arc(cx, cy, r * 2.6 * pulse, 0, Math.PI * 2);
+  ctx.arc(cx, cy, haloR, 0, Math.PI * 2);
   ctx.fill();
 
-  // slowly turning rays
-  ctx.strokeStyle = 'rgba(255, 210, 100, 0.7)';
+  // slowly turning rays — more of them, and reaching further, at full strength
+  ctx.strokeStyle = `rgba(255, ${Math.round(150 + 60 * strength)}, ${Math.round(70 + 40 * strength)}, ${(0.4 + 0.4 * strength).toFixed(3)})`;
   ctx.lineWidth = Math.max(2, r * 0.12);
   ctx.lineCap = 'round';
   const spin = timeMs / 9000;
-  for (let i = 0; i < 8; i++) {
-    const a = spin + (i / 8) * Math.PI * 2;
+  const rayCount = 4 + Math.round(strength * 4);
+  const rayReach = 1.55 + 0.35 * strength;
+  for (let i = 0; i < rayCount; i++) {
+    const a = spin + (i / rayCount) * Math.PI * 2;
     ctx.beginPath();
     ctx.moveTo(cx + Math.cos(a) * r * 1.35, cy + Math.sin(a) * r * 1.35);
-    ctx.lineTo(cx + Math.cos(a) * r * (1.7 + 0.12 * Math.sin(timeMs / 700 + i)), cy + Math.sin(a) * r * (1.7 + 0.12 * Math.sin(timeMs / 700 + i)));
+    ctx.lineTo(
+      cx + Math.cos(a) * r * (rayReach + 0.12 * Math.sin(timeMs / 700 + i)),
+      cy + Math.sin(a) * r * (rayReach + 0.12 * Math.sin(timeMs / 700 + i)),
+    );
     ctx.stroke();
   }
 
   // body
   const body = ctx.createRadialGradient(cx - r * 0.3, cy - r * 0.3, r * 0.1, cx, cy, r * pulse);
-  body.addColorStop(0, '#fff6c9');
-  body.addColorStop(1, '#ffd166');
+  body.addColorStop(0, bodyInner);
+  body.addColorStop(1, bodyOuter);
   ctx.fillStyle = body;
   ctx.beginPath();
   ctx.arc(cx, cy, r * pulse, 0, Math.PI * 2);
@@ -123,14 +151,19 @@ function drawVapor(ctx: CanvasRenderingContext2D, state: GameState, timeMs: numb
   ctx.save();
   ctx.fillStyle = '#ffffff';
 
-  // ambient: always-on lazy wisps over the sea
-  const ambientCount = 4;
+  // Ambient wisps over the sea, always on but scaled by the sun: a weak dawn
+  // sun gives a couple of faint, slow puffs; a noon sun gives a busier, more
+  // opaque rise. This is the same `sun.intensity` that sets the actual
+  // evaporation rate in Sim, so the amount of visible vapor honestly tracks
+  // how fast the cloud is really filling — not a separate decorative number.
+  const sunFactor = 0.4 + 0.6 * state.sun.intensity;
+  const ambientCount = 2 + Math.round(sunFactor * 3);
   for (let i = 0; i < ambientCount; i++) {
-    const t = ((timeMs / 4200) + i / ambientCount) % 1;
+    const t = ((timeMs / (5200 - 2000 * sunFactor)) + i / ambientCount) % 1;
     const x = sea.x0 + (sea.x1 - sea.x0) * (0.15 + 0.7 * hash1(i * 17.3));
     const sway = Math.sin(t * Math.PI * 3 + i) * h * 0.012;
     const y = sea.y - t * h * 0.17;
-    ctx.globalAlpha = Math.sin(t * Math.PI) * 0.28;
+    ctx.globalAlpha = Math.sin(t * Math.PI) * 0.28 * sunFactor;
     ctx.beginPath();
     ctx.arc(x + sway, y, h * 0.011 * (1 + t), 0, Math.PI * 2);
     ctx.fill();
@@ -434,7 +467,15 @@ const FLOWER_PALETTES: [string, string, string][] = [
   ['#c9a6ff', '#ffe066', '#fff7d6'],
 ];
 
-function drawField(ctx: CanvasRenderingContext2D, f: Field, timeMs: number): void {
+/**
+ * `wind` is the signed wind strength normalized to roughly -1..1 (positive =
+ * blowing right). Round 8: wind used to only move the cloud and draw sky
+ * streaks — the scenery itself never reacted, which is a big part of why it
+ * read as mechanical rather than like real weather. Grass blades now lean
+ * with the wind and flutter faster the harder it blows, so a gust is visible
+ * in the whole picture, not just as an arrow overlay.
+ */
+function drawField(ctx: CanvasRenderingContext2D, f: Field, timeMs: number, wind: number): void {
   const t = f.targetMin > 0 ? clamp01(f.moisture / f.targetMin) : f.moisture > 0 ? 1 : 0;
   const rx = f.radius;
   const ry = f.radius * 0.55;
@@ -485,7 +526,11 @@ function drawField(ctx: CanvasRenderingContext2D, f: Field, timeMs: number): voi
     for (let i = 0; i < bladeCount; i++) {
       const bx = fx + (hash1(seed + i) - 0.5) * rx * 1.3;
       const by = fy + (hash1(seed + i + 5) - 0.5) * ry * 0.9;
-      const lean = hash1(seed + i + 11) - 0.5;
+      // static per-blade personality + a shared directional bias from the wind
+      // + a small per-blade flutter phase, so a gust reads as correlated but
+      // not perfectly synchronized motion, like real grass.
+      const flutter = Math.sin(timeMs / 1000 * 3.2 + seed + i) * Math.abs(wind) * 0.16;
+      const lean = hash1(seed + i + 11) - 0.5 + wind * 0.55 + flutter;
       const h = rx * (0.16 + 0.5 * t) * (0.7 + hash1(seed + i + 20) * 0.5);
       drawBlade(ctx, bx, by, h, lean, '#6ea35f');
       drawBlade(ctx, bx + rx * 0.03, by, h * 0.85, lean + 0.3, '#7fb56d');
@@ -505,8 +550,9 @@ function drawField(ctx: CanvasRenderingContext2D, f: Field, timeMs: number): voi
       const tx = fx + Math.cos(a) * rx * 0.88;
       const ty = fy + Math.sin(a) * ry * 0.88;
       const h = rx * (0.1 + hash1(seed + i + 40) * 0.06);
-      drawBlade(ctx, tx, ty, h, Math.cos(a) * 0.6, '#5a9a5c');
-      drawBlade(ctx, tx + rx * 0.02, ty, h * 0.8, Math.cos(a) * 0.6 + 0.4, '#71b364');
+      const flutter = Math.sin(timeMs / 1000 * 3.2 + seed + i) * Math.abs(wind) * 0.14;
+      drawBlade(ctx, tx, ty, h, Math.cos(a) * 0.6 + wind * 0.4 + flutter, '#5a9a5c');
+      drawBlade(ctx, tx + rx * 0.02, ty, h * 0.8, Math.cos(a) * 0.6 + 0.4 + wind * 0.4 + flutter, '#71b364');
     }
 
     const popT = easeOutBack(f.bloom01);
@@ -727,7 +773,11 @@ function drawWindHint(ctx: CanvasRenderingContext2D, state: GameState): void {
     const seed = hash1(i * 7.13);
     const y = h * (0.1 + seed * 0.42);
     const len = h * (0.05 + 0.11 * strength) * (0.6 + seed * 0.8);
-    const speed = (90 + 260 * strength) * (0.7 + seed * 0.6);
+    // Streaks used to run at 90–350 u/s, which the player read as "the wind
+    // looks too fast to be real" — air moving visibly faster than the cloud it
+    // is supposed to be pushing. Roughly a third of that tracks the cloud's own
+    // drift and reads as moving air rather than a fan.
+    const speed = (34 + 92 * strength) * (0.7 + seed * 0.6);
     // wrap across a span wider than the world so streaks enter from off-screen
     const span = w + len * 2;
     const x = (((t * speed * dir + seed * span) % span) + span) % span - len;
@@ -748,43 +798,66 @@ function drawWindHint(ctx: CanvasRenderingContext2D, state: GameState): void {
   ctx.restore();
 }
 
-/** Rising warm air: a wavering column with upward chevrons climbing it. */
-function drawThermal(ctx: CanvasRenderingContext2D, t: Thermal, timeMs: number): void {
+/**
+ * Rising warm air: a wavering column with upward chevrons climbing it.
+ *
+ * `sunIntensity` (0..1, the same value that drives the actual lift force in
+ * Sim) modulates how strong the column LOOKS — glow, rise speed, and wobble
+ * amplitude all scale with it. This is the round-8 fix for "optimize the
+ * thermal too": before this the column was purely time-animated and looked
+ * identical at dawn and at noon even though the force it exerts on the cloud
+ * literally is not. A hazard whose picture doesn't change when its underlying
+ * physics does is exactly the "needs a caption" failure this round set out to
+ * remove — the point is that a child can see the weak-morning/strong-noon
+ * story without anyone telling them.
+ */
+function drawThermal(ctx: CanvasRenderingContext2D, t: Thermal, timeMs: number, sunIntensity: number): void {
   const time = timeMs / 1000;
   const topY = t.pos.y - t.height;
   const halfW = t.width / 2;
+  // SUN_MIN_INTENSITY in sim/index.ts floors at 0.28; remap so the column is
+  // still faintly visible at its weakest rather than fully invisible (a
+  // thermal a child can't see at all isn't a thermal, it's a trap).
+  const strength = 0.35 + 0.65 * Math.max(0, Math.min(1, (sunIntensity - 0.28) / 0.72));
 
   ctx.save();
   const grad = ctx.createLinearGradient(0, t.pos.y, 0, topY);
-  grad.addColorStop(0, 'rgba(255, 178, 92, 0.5)');
-  grad.addColorStop(0.6, 'rgba(255, 203, 136, 0.26)');
+  grad.addColorStop(0, `rgba(255, 178, 92, ${(0.5 * strength).toFixed(3)})`);
+  grad.addColorStop(0.6, `rgba(255, 203, 136, ${(0.26 * strength).toFixed(3)})`);
   grad.addColorStop(1, 'rgba(255, 226, 186, 0)');
   ctx.fillStyle = grad;
-  // wavy sides, so it shimmers like heat haze instead of reading as a solid box
+  // wavy sides, so it shimmers like heat haze instead of reading as a solid box.
+  // Wobble amplitude scales with strength: a weak dawn thermal barely shimmers,
+  // a noon one visibly boils.
+  const wobAmp = halfW * (0.04 + 0.1 * strength);
   ctx.beginPath();
   ctx.moveTo(t.pos.x - halfW, t.pos.y);
   for (let i = 0; i <= 10; i++) {
     const f = i / 10;
     const y = t.pos.y - t.height * f;
-    const wob = Math.sin(time * 2.1 + f * 5) * halfW * 0.12;
+    const wob = Math.sin(time * 2.1 + f * 5) * wobAmp;
     ctx.lineTo(t.pos.x - halfW * (1 - f * 0.25) + wob, y);
   }
   for (let i = 10; i >= 0; i--) {
     const f = i / 10;
     const y = t.pos.y - t.height * f;
-    const wob = Math.sin(time * 2.1 + f * 5 + 1.7) * halfW * 0.12;
+    const wob = Math.sin(time * 2.1 + f * 5 + 1.7) * wobAmp;
     ctx.lineTo(t.pos.x + halfW * (1 - f * 0.25) + wob, y);
   }
   ctx.closePath();
   ctx.fill();
 
-  // chevrons rising up the column on a loop
-  ctx.strokeStyle = 'rgba(255, 170, 90, 0.55)';
+  // Chevrons rising up the column on a loop. Both their rise SPEED and how many
+  // are in flight at once track strength, so a strong noon thermal reads as a
+  // faster, busier updraft rather than the same three arrows moving the same
+  // speed regardless of how hard the sun is actually pulling.
+  ctx.strokeStyle = `rgba(255, 170, 90, ${(0.55 * strength).toFixed(3)})`;
   ctx.lineWidth = Math.max(2, t.width * 0.035);
   ctx.lineCap = 'round';
-  const arrows = 3;
+  const arrows = strength > 0.7 ? 4 : strength > 0.45 ? 3 : 2;
+  const riseSpeed = 0.3 + 0.35 * strength;
   for (let i = 0; i < arrows; i++) {
-    const f = ((time * 0.45 + i / arrows) % 1);
+    const f = (time * riseSpeed + i / arrows) % 1;
     const y = t.pos.y - t.height * f;
     const wing = halfW * 0.3 * (1 - f * 0.4);
     ctx.globalAlpha = Math.sin(f * Math.PI) * 0.9;
@@ -797,35 +870,27 @@ function drawThermal(ctx: CanvasRenderingContext2D, t: Thermal, timeMs: number):
   ctx.restore();
 }
 
-/**
- * A flapping silhouette. `flap` is advanced by the Sim so this stays pure.
- *
- * Drawn deliberately bold: at the first pass this was a hairline curve that
- * read as a pencil squiggle at actual play size, and a hazard the player is
- * required to see coming has to be legible at a glance — that's a gameplay
- * requirement, not styling. The stroke spans the full collision radius so what
- * you see is exactly what you can hit; a bird drawn larger than its hitbox
- * would feel like a cheat, and smaller would feel like a phantom hit.
- */
-function drawBird(ctx: CanvasRenderingContext2D, b: Bird): void {
-  const r = b.radius;
-  const dir = b.vx >= 0 ? 1 : -1;
-  const lift = Math.sin(b.flap) * r * 0.55;
-
+/** One flapping V silhouette at an arbitrary offset/scale/phase — the building
+ *  block drawBird composes into a flock. */
+function drawOneBirdMark(
+  ctx: CanvasRenderingContext2D,
+  x: number,
+  y: number,
+  r: number,
+  dir: number,
+  flapPhase: number,
+  alpha: number,
+): void {
+  const lift = Math.sin(flapPhase) * r * 0.55;
   ctx.save();
-  ctx.translate(b.pos.x, b.pos.y);
+  ctx.translate(x, y);
   ctx.scale(dir, 1);
-  // a soft light halo so the dark silhouette stays readable against both the
-  // deep sky at the top of the screen and the pale haze near the horizon
-  ctx.strokeStyle = 'rgba(255,255,255,0.5)';
-  ctx.lineWidth = Math.max(5, r * 0.52);
+  ctx.globalAlpha = alpha;
   ctx.lineCap = 'round';
   ctx.lineJoin = 'round';
   for (const pass of [0, 1]) {
-    if (pass === 1) {
-      ctx.strokeStyle = 'rgba(38, 56, 76, 0.95)';
-      ctx.lineWidth = Math.max(3, r * 0.3);
-    }
+    ctx.strokeStyle = pass === 0 ? 'rgba(255,255,255,0.5)' : 'rgba(38, 56, 76, 0.95)';
+    ctx.lineWidth = pass === 0 ? Math.max(5, r * 0.52) : Math.max(3, r * 0.3);
     ctx.beginPath();
     ctx.moveTo(-r, lift * 0.5);
     ctx.quadraticCurveTo(-r * 0.45, -lift, 0, r * 0.14);
@@ -833,6 +898,29 @@ function drawBird(ctx: CanvasRenderingContext2D, b: Bird): void {
     ctx.stroke();
   }
   ctx.restore();
+}
+
+/**
+ * A little flock, not a lone bird. `flap` is advanced by the Sim so this stays
+ * pure. Round 8 upgrade: a single V-mark read as a "prop" rather than an
+ * animal — real flocks are loose clusters of several birds at slightly
+ * different sizes, phases and trailing offsets. Only the lead mark's position
+ * is the actual hitbox (it IS `b.pos`/`b.radius` from Sim); the two companions
+ * are purely decorative and trail behind at fixed offsets scaled by direction,
+ * so the whole cluster reads as one flock moving together without changing
+ * what the player can collide with.
+ */
+function drawBird(ctx: CanvasRenderingContext2D, b: Bird): void {
+  const r = b.radius;
+  const dir = b.vx >= 0 ? 1 : -1;
+  const companions = [
+    { dx: -2.6, dy: -0.7, scale: 0.72, phase: 0.6 },
+    { dx: -4.4, dy: 0.9, scale: 0.58, phase: 1.3 },
+  ];
+  for (const c of companions) {
+    drawOneBirdMark(ctx, b.pos.x - c.dx * r * dir, b.pos.y + c.dy * r, r * c.scale, dir, b.flap + c.phase, 0.75);
+  }
+  drawOneBirdMark(ctx, b.pos.x, b.pos.y, r, dir, b.flap, 1);
 }
 
 /** A drifting pale-blue cold zone with slow frost sparkles. */
@@ -888,12 +976,13 @@ export function createRender(): RenderModule {
     ctx.translate(vp.offsetX, vp.offsetY);
     ctx.scale(vp.scale, vp.scale);
 
-    drawSky(ctx, w, h, state.stats.elapsedMs);
+    drawSky(ctx, w, h, state.stats.elapsedMs, state.sun.intensity);
     drawGroundAndSea(ctx, state, state.stats.elapsedMs);
     for (const m of state.mountains) drawMountain(ctx, m);
-    for (const f of state.fields) drawField(ctx, f, state.stats.elapsedMs);
+    const windStrength = Math.max(-1, Math.min(1, (state.wind.baseX + state.wind.gustX) / 60));
+    for (const f of state.fields) drawField(ctx, f, state.stats.elapsedMs, windStrength);
     drawWindHint(ctx, state);
-    for (const t of state.thermals) drawThermal(ctx, t, state.stats.elapsedMs);
+    for (const t of state.thermals) drawThermal(ctx, t, state.stats.elapsedMs, state.sun.intensity);
     for (const c of state.coldFronts) drawColdFront(ctx, c, state.stats.elapsedMs);
     drawVapor(ctx, state, state.stats.elapsedMs);
     drawCloud(ctx, state);

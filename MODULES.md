@@ -41,6 +41,7 @@ actually did the work.
 
 | 6 | Audio (bugfix) | main session (Opus) | done | **Round 5's rain-sound rebuild made the rain inaudible.** It set gain `0.18→0.09` reasoning "half the old volume", but `pinkNoiseBuffer` already bakes in a `*0.11` scale that the old white-noise buffer never had, and the 850Hz lowpass put the remainder under the rolloff of the laptop/phone speakers this actually gets played on. Measured through an OfflineAudioContext in headless Chromium: **-45.4 dBFS overall, only 58% surviving a >500Hz speaker ⇒ ~-50 dBFS effective** — silent in any real room. Fixed to pink noise → lowpass 1600Hz → highpass 160Hz (drops sub-bass rumble small speakers can't reproduce anyway, which was only eating headroom) → gain 0.28: now **-38.2 dBFS with 93% surviving >500Hz**, ~11 dB louder where it counts while staying below the old harsh version overall, so the "不难受" character round 5 was chasing is preserved. Verified additionally by a real Playwright playthrough (skim sea → 100% water → hold over field): rain loop starts and stops cleanly, no console errors |
 
+| 8 | cross-module (natural-law causality, wind/bird/thermal quality, escalating difficulty) | main session (Opus) | done | Driven by a third playtest asking for causality over captions — see the dedicated section below. Cold-front thaw, mass-scaled wind, a simulated sun driving evaporation/thermals visibly, bird flocks instead of a lone silhouette, wind-swept grass, gusts slowed to read as weather, obstacles now start at level 3 and escalate. Tests 32 → 36 |
 | 7 | cross-module (wind, obstacles, levels, stars) | main session (Opus) | done | Driven by a second playtest ("怎么才能三星呀，你也没明确说明；加风阻；通关之后的滚动条有时候会莫名卡住；再多设计一些关卡，加点动态障碍"). **Wind is a real mechanic again** — see the rewritten section below; the round-2 "wind is cosmetic" decision is now reversed with the user's explicit go-ahead. **Three dynamic obstacles** (热气流 / 飞鸟群 / 冷空气团) with sim, render, audio and per-obstacle events. **Five new levels (11–15)**, one per obstacle then two combining them. **Star criteria are finally stated**: the 3★ gate on the level-select card, a live `⏱ x/ys 💧 a/b` pill in the HUD, and a result-screen breakdown naming which gate you missed. **Two bugs found and fixed en route** — the level-select grid was unscrollable (`ec2fffc`) and clamping left phantom velocity (below). Tests 21 → 32; `tools/` gained the calibration rig round 2 used but never committed |
 
 ### The clamped-spring bug: holding low over a field silently did nothing
@@ -89,6 +90,101 @@ than weather.
 L7/L8 now deliver what their names promise: L7 parks the cloud 34u downwind
 (~⅓ of a field's ~86u rain-catch radius, so you must aim upwind to water
 accurately), L8 swings between ~2u and ~54u on a 3.2s gust cycle.
+
+### Round 8: causality over captions — the water cycle should need no text
+
+Third playtest feedback, quoted in full because it's the clearest design brief
+this project has gotten: "冷气团冻住之后应该有个僵直时间；然后现在的风和飞鸟太
+简陋了；第三关就可以开始加更多的障碍了，难度要依次升级；最关键还是要贴合自然
+规律，把水循环讲明白（最好是通过游戏和画面，不需要文字也能看懂）；热空气也对
+应优化一下；根据云朵的重量不同，受风的影响也不一样；太阳也要有强弱变化，完全
+模拟，但是这个进度可能会加快，这一点也诚实说明；如果当前架构已经不能实现这些
+效果，即使评估架构，看是不是要部署到自己的服务器上；有时候这个风，快得不想真
+的；可以借鉴其他益智类游戏的设计；过程中随时记录，以便于为之后其他游戏的开发
+积累经验."
+
+**Architecture, evaluated first because it gates everything else.** Measured,
+not guessed, in headless Chromium at 1280×720: the live game (busiest level)
+holds a 16.70ms median frame — locked 60fps — while 1000 soft Canvas2D
+particles/frame cost 0.19ms (1% of budget) and 8000 cost 1.63ms (10%). Current
+particle cap is 40. **Verdict: stay on TS + Canvas2D + Web Audio, no server, no
+engine change.** Nothing asked for is server-shaped (no multiplayer, no shared
+state, no heavy compute). Full writeup, including the caveat that these are
+desktop numbers, in `LEARNINGS.md`.
+
+**Causality, not captions.** The standing failure mode this round set out to
+fix: round 5 responded to "操作没有体现水循环" by adding UI text describing the
+cycle. That's a caption on top of a simulation that didn't itself encode the
+causality. This round instead made the simulation causally real:
+
+- **The sun drives evaporation and thermal lift**, not a flat rate — `sun.intensity`
+  (a dawn→noon→dusk sine arc, floored at 0.28 so a level is never softlocked at
+  dusk) multiplies both `evapRate` and thermal `lift` in `sim/index.ts`. The
+  *picture* changes with it, not just the number: the sun disc grows, whitens
+  and throws more/longer rays at noon (`drawSun`); the whole sky tints warmer
+  at dawn/dusk (`drawSky`); ambient vapor wisps off the sea get busier and
+  brighter as intensity climbs (`drawVapor`); a thermal's glow, wobble
+  amplitude, and chevron count/speed all scale with the same intensity value
+  (`drawThermal`). Verified with a direct render-diff harness (bypassing
+  Playwright drag choreography, which is unreliable for pixel-precision
+  checks): isolating the thermal's own pixel contribution from the sky-tint
+  confound, a noon thermal contributes ~3× the pixels a dawn one does.
+- **Honest disclosure on the sped-up day**: real dawn-to-dusk is ~12+ hours;
+  `DAY_LENGTH_MS_DEFAULT = 150_000` (150 real seconds) compresses that by
+  roughly 300×. That's a deliberate deviation, not hidden — it's named here
+  per the user's "这一点也诚实说明" rather than as in-game text, because the
+  user's own stated principle for this feature is that the cycle should be
+  legible through play and picture, not captions; a meta note about production
+  time-compression isn't part of the water-cycle lesson itself, so it lives in
+  documentation, in keeping with [[user-collab-preferences]]'s "document
+  shortcuts honestly & dated". At 150s/day, dayPhase moves enough within a
+  typical 5–40s level for the sun to visibly brighten over one run (e.g.
+  starting at intensity ≈0.84, a 30s hard run ends near ≈1.0) — verified by
+  test, not just claimed.
+- **Cloud mass changes wind response**: `massFactor = CLOUD_BASE_MASS/(CLOUD_BASE_MASS
+  + water)` scales both wind displacement and thermal lift, so a full cloud
+  visibly holds its line while an empty one gets shoved around. Real, legible,
+  and creates an actual decision (cross a windy stretch loaded, not empty).
+  Verified: an empty cloud in 45u wind deflects noticeably more than a full one
+  in the same wind (test asserts >30% reduction).
+- **Cold-front thaw**: leaving the front no longer thaws the cloud instantly —
+  `CHILL_THAW_MS = 1300` keeps it frozen briefly after exit, so escaping is a
+  timed decision rather than a doorway you can dip in and out of for free.
+- **Wind and birds "太简陋" (too simplistic), fixed on three fronts**: (1) wind
+  now visibly moves the *scenery*, not just the cloud and an arrow overlay —
+  field grass leans and flutters with wind strength (`drawField`'s new `wind`
+  param), verified by a direct pixel-diff test showing the render measurably
+  differs by wind direction; (2) gust periods lengthened (3.0–3.6s → 7.2–8.6s)
+  and sky-streak speed cut roughly 3× (was 90–350 u/s, now 34–126 u/s) because
+  the player reported the wind "快得不想真的" — air visibly outrunning the
+  cloud it's supposed to be pushing read as fake, not as weather; (3) birds
+  upgraded from one lone V-silhouette to a loose three-bird flock
+  (`drawOneBirdMark` composed by `drawBird`) — only the lead mark is the real
+  hitbox, the two companions are decorative trailers, so collision fairness is
+  unchanged while the animal reads as a flock instead of a UI prop.
+- **Obstacles now start at level 3, not level 11**, escalating in order: a
+  gentle thermal at L3 (off to the side, doesn't block progress), a bird flock
+  at L6, a cold front at L9 — each layered onto an existing level's own
+  identity (fact card, name, core lesson unchanged) rather than replacing it.
+  L11–15 remain the deeper dedicated/combined tier. Recalibrated after every
+  change; all 32 level/tier star gates still land in the 1.35×–3.2× house band.
+- **Two more bugs found while verifying this round**, both silent under
+  `npm test` until probed: (1) the calibration autopilot's mode-switch logic
+  flip-flopped between "drink" and "water" the instant rain started (water and
+  need fall together), making every multi-trip level read as 30–180s —
+  fixed with explicit hysteresis in `tools/autopilot.ts`; (2) a field could
+  finish a downpour ~0.05 units short of its bloom target — invisible on
+  screen, but the field would refuse to bloom, reading as a bug to a child who
+  just emptied a whole cloud on it. Fixed with a 0.5-unit epsilon on the bloom
+  check in `sim/index.ts` (documented inline as deliberate, not slop).
+
+**On "借鉴其他益智类游戏的设计" (draw on other puzzle-game design):** the
+guiding reference this round was the school of puzzle/exploration games that
+teach entirely through environmental cues rather than UI text — wind and
+thermals as terrain-integrated forces you read from the scene itself (in the
+vein of games built around gliding/soaring on real-feeling air currents),
+causality you infer from what's on screen rather than a tutorial popup. That's
+the standard the "no text needed" work above was held to.
 
 ### Known shortcut (round 7): obstacles are per-level, not per-tier
 
@@ -149,7 +245,7 @@ Run before you start, and again before you hand back:
 ```
 npm install
 npm run typecheck   # must stay clean
-npm test            # 32 tests must stay green
+npm test            # 36 tests must stay green
 npm run build        # must succeed
 npm run dev          # then ACTUALLY PLAY IT in a browser — see below
 ```

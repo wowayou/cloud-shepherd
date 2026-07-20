@@ -48,8 +48,10 @@ export interface Cloud {
   water: number;
   maxWater: number;
   raining: boolean;
-  /** True while inside a ColdFront: the cloud can neither absorb nor rain. */
+  /** True while frozen — inside a ColdFront, or still thawing after leaving. */
   chilled: boolean;
+  /** Milliseconds of thaw left after leaving a cold front. */
+  thawMs: number;
 }
 
 /**
@@ -91,6 +93,19 @@ export interface ColdFront {
   vx: number;
 }
 
+/**
+ * The sun, simulated rather than decorative — it is the engine of the whole
+ * water cycle and the game's core lesson. Its intensity drives how fast the sea
+ * evaporates and how strongly thermals rise, so a child can *see* that the sun
+ * is what lifts the water, without being told.
+ */
+export interface SunState {
+  /** 0..1 through the simulated day: 0 = dawn, 0.5 = noon, 1 = dusk. */
+  dayPhase: number;
+  /** Current heating power, 0..1. Multiplies evaporation and thermal lift. */
+  intensity: number;
+}
+
 export interface RainParticle {
   pos: Vec2;
   vel: Vec2;
@@ -115,6 +130,7 @@ export interface GameState {
   thermals: Thermal[];
   birds: Bird[];
   coldFronts: ColdFront[];
+  sun: SunState;
   sea: SeaRegion;
   particles: RainParticle[];
   stats: SimStats;
@@ -201,6 +217,9 @@ export interface TierParams {
   /** Peak extra displacement of the oscillating gust, same units. */
   gustAmp: number;
   gustPeriodMs: number;
+  /** Real milliseconds for one simulated dawn→dusk arc. Time is deliberately
+   *  compressed; the HUD says so out loud rather than pretending otherwise. */
+  dayLengthMs?: number;
   cloudMaxWater: number;
   evapRate: number;
   rainRate: number;

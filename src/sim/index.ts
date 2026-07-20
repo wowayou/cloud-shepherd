@@ -57,6 +57,35 @@ const VEL_DAMPING_PER_SEC = 16; // higher = snappier stop, lower = more drift
 // windX=45), which reads as slapstick rather than weather.
 const WIND_FREE_DRIFT_PER_UNIT = 20; // terminal drift ≈ 1.25 · windX units/sec
 
+// ——— Cloud mass vs. wind ———
+// A loaded cloud is harder to push around than an empty one: the wind's force is
+// roughly unchanged but the mass it acts on has grown, so deflection falls. This
+// is real, it is legible (heavy clouds visibly hold their line), and it creates
+// an actual decision — cross the windy stretch loaded, not empty.
+//
+// Deflection is scaled by BASE_MASS/(BASE_MASS + water), i.e. an empty cloud
+// takes the full displacement and a 90-unit load takes 40% of it. Simplification
+// kept on purpose: a fuller cloud is also drawn larger, so its true sail area
+// grows too — but mass grows faster than frontal area, so "heavier deflects
+// less" stays the correct direction and is the part worth teaching.
+const CLOUD_BASE_MASS = 60;
+
+// ——— The sun ———
+// The sun is the engine of the whole cycle, so it is simulated, not decorative:
+// intensity multiplies both sea evaporation and thermal lift. That makes the
+// causal chain visible — bright sun ⇒ more vapour ⇒ cloud fills ⇒ cloud rains —
+// which is the lesson the game exists to teach, carried by the picture rather
+// than by a caption.
+const DAY_LENGTH_MS_DEFAULT = 150_000;
+// Dawn/dusk floor. A physically honest arc would pass through a true zero, but a
+// level where the child simply cannot make progress for thirty seconds is not a
+// game — so the arc runs 0.28..1.0 instead of 0..1. Deliberate deviation.
+const SUN_MIN_INTENSITY = 0.28;
+// Levels open at mid-morning rather than dawn so the first drink isn't sluggish.
+const DAY_START_PHASE = 0.28;
+
+const CHILL_THAW_MS = 1300; // frozen stays frozen briefly after leaving the front
+
 // Cloud collision radius for bird strikes, as a fraction of worldH. Render draws
 // the blob at ~0.075·worldH; this is deliberately a touch tighter so a hit always
 // looks like a hit rather than a near-miss.
@@ -92,6 +121,13 @@ function mulberry32(seed: number): () => number {
     t ^= t + Math.imul(t ^ (t >>> 7), t | 61);
     return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
   };
+}
+
+/** Heating power at a point in the day: a sine arc from dawn through noon to
+ *  dusk, floored so dawn/dusk are weak rather than dead. */
+function sunIntensityAt(dayPhase: number): number {
+  const arc = Math.sin(Math.max(0, Math.min(1, dayPhase)) * Math.PI);
+  return SUN_MIN_INTENSITY + (1 - SUN_MIN_INTENSITY) * arc;
 }
 
 function buildInitialState(level: LevelRuntime): GameState {
@@ -146,6 +182,7 @@ function buildInitialState(level: LevelRuntime): GameState {
     maxWater: params.cloudMaxWater,
     raining: false,
     chilled: false,
+    thawMs: 0,
   };
 
   return {
@@ -157,6 +194,7 @@ function buildInitialState(level: LevelRuntime): GameState {
     thermals,
     birds,
     coldFronts,
+    sun: { dayPhase: DAY_START_PHASE, intensity: sunIntensityAt(DAY_START_PHASE) },
     sea: { x0: 0, x1: level.seaWidthN * worldW, y: groundY },
     particles: [],
     stats: { elapsedMs: 0, waterEvaporated: 0, waterRained: 0, waterWasted: 0 },
@@ -190,7 +228,12 @@ function updateField(f: Field, dt: number): SimEvent | null {
     f.state = 'overwater';
     return wasOverwater ? null : { type: 'fieldOverwater', fieldId: f.id };
   }
-  if (f.moisture >= f.targetMin) {
+  // Epsilon, not a hack: rain is accumulated in floating-point increments, so a
+  // field can finish a downpour a few hundredths short of its target — visually
+  // identical to a satisfied field, but refusing to bloom, which reads as a bug
+  // to a child who just emptied a whole cloud onto it. 0.5 units is ~12ms of
+  // rain at the standard rate, far below anything perceivable.
+  if (f.moisture >= f.targetMin - 0.5) {
     f.state = 'bloom';
     f.bloom01 = 0;
     return { type: 'fieldBloom', fieldId: f.id };
@@ -227,13 +270,20 @@ export function createSim(): SimModule {
     const { w: worldW, h: worldH } = state.bounds;
     state.stats.elapsedMs += dtMs;
 
+    // the sun's arc — everything downstream reads from it
+    const dayLength = params.dayLengthMs ?? DAY_LENGTH_MS_DEFAULT;
+    state.sun.dayPhase = (DAY_START_PHASE + state.stats.elapsedMs / dayLength) % 1;
+    state.sun.intensity = sunIntensityAt(state.sun.dayPhase);
+
     // wind
     state.wind.baseX = params.windBaseX;
     state.wind.gustX =
       params.gustAmp > 0
         ? Math.sin((state.stats.elapsedMs / params.gustPeriodMs) * Math.PI * 2) * params.gustAmp
         : 0;
-    const windX = state.wind.baseX + state.wind.gustX;
+    // A loaded cloud resists the wind; an empty one gets shoved around.
+    const massFactor = CLOUD_BASE_MASS / (CLOUD_BASE_MASS + state.cloud.water);
+    const windX = (state.wind.baseX + state.wind.gustX) * massFactor;
 
     // dynamic obstacles move before the cloud reacts to them
     for (const b of state.birds) {
@@ -262,7 +312,9 @@ export function createSim(): SimModule {
       const above = t.pos.y - state.cloud.pos.y; // height above the ground line
       if (above < 0 || above > t.height) continue;
       const fade = Math.min(1, (t.height - above) / (t.height * 0.34));
-      liftY += t.lift * fade;
+      // Thermals are the sun's doing, so they rise and fall with it — and, like
+      // wind, they shift a heavy cloud less than a light one.
+      liftY += t.lift * fade * state.sun.intensity * massFactor;
     }
 
     // pointer pull + wind + damping. Wind and thermals shift the point the
@@ -313,10 +365,16 @@ export function createSim(): SimModule {
     // cold fronts: inside one, the cloud is frozen — it can neither drink nor
     // rain. Emitted as enter/exit edges so Audio and the HUD can react once
     // instead of every frame.
+    // Leaving the front doesn't thaw the cloud instantly — it stays frozen for
+    // CHILL_THAW_MS afterwards, so escaping is a decision with a cost rather
+    // than a doorway you can dip in and out of for free.
     const wasChilled = state.cloud.chilled;
-    state.cloud.chilled = state.coldFronts.some(
+    const insideFront = state.coldFronts.some(
       (c) => Math.hypot(c.pos.x - state.cloud.pos.x, c.pos.y - state.cloud.pos.y) <= c.radius,
     );
+    if (insideFront) state.cloud.thawMs = CHILL_THAW_MS;
+    else state.cloud.thawMs = Math.max(0, state.cloud.thawMs - dtMs);
+    state.cloud.chilled = insideFront || state.cloud.thawMs > 0;
     if (state.cloud.chilled && !wasChilled) events.push({ type: 'chillEnter' });
     if (!state.cloud.chilled && wasChilled) events.push({ type: 'chillExit' });
 
@@ -341,7 +399,10 @@ export function createSim(): SimModule {
     const overSea = state.cloud.pos.x >= state.sea.x0 && state.cloud.pos.x <= state.sea.x1;
     const lowOverSea = state.sea.y - state.cloud.pos.y <= worldH * ABSORB_BAND_FRAC;
     if (!state.cloud.chilled && overSea && lowOverSea && state.cloud.water < state.cloud.maxWater) {
-      const amt = Math.min(params.evapRate * dt, state.cloud.maxWater - state.cloud.water);
+      // The sun is literally what lifts the water: a weak dawn sun fills the
+      // cloud slowly, a noon sun fills it fast. This is the game's core lesson
+      // expressed as a rate rather than as a sentence.
+      const amt = Math.min(params.evapRate * state.sun.intensity * dt, state.cloud.maxWater - state.cloud.water);
       if (amt > 0) {
         state.cloud.water += amt;
         state.stats.waterEvaporated += amt;

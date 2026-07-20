@@ -77,8 +77,15 @@ export function idealRun(level: LevelDef, tier: Tier): RunResult {
     let desiredY: number;
     let wantRain = false;
 
-    const wantForTrip = Math.min(state.cloud.maxWater, need);
-    if (mode === 'drink' && (state.cloud.water >= wantForTrip - 0.5 || state.cloud.water >= state.cloud.maxWater - 0.5)) {
+    // Take a small margin rather than exactly `need`: raining until the cloud is
+    // dry can land a hair short of a field's target, and a competent player
+    // would carry a little extra rather than make a second trip for one drop.
+    const wantForTrip = Math.min(state.cloud.maxWater, need * 1.05 + 1);
+    // No tolerance on the "have I got enough?" side. With `- 0.5` here, a trip
+    // that only needed 0.055 more units was satisfied by an empty cloud, so the
+    // autopilot flew to the field, rained nothing, and deadlocked forever —
+    // reported as "level 10 uncompletable" when the level was fine.
+    if (mode === 'drink' && (state.cloud.water >= wantForTrip || state.cloud.water >= state.cloud.maxWater - 0.5)) {
       mode = 'water';
     } else if (mode === 'water' && state.cloud.water <= 0.5 && need > 0) {
       mode = 'drink';

@@ -119,8 +119,6 @@ const STYLES = `
   .cs-fact-card:hover { background:rgba(255,243,207,0.95); }
   .cs-fact-prompt { color:#9a6a1e; font-weight:600; font-size:13px; line-height:1.35; }
   .cs-fact-text { color:#5a4416; font-size:14px; line-height:1.5; }
-  .cs-rest-hint { color:#5a7a6a; font-size:13px; margin-top:6px; opacity:0.85; }
-  .cs-energy-pill { font-size:13px; }
   .cs-cycle { gap:2px; font-size:15px; }
   .cs-cycle-arrow { opacity:0.35; font-size:12px; color:#16324f; }
   .cs-cycle-stage { opacity:0.3; filter:grayscale(0.6); transition:opacity 0.25s ease, transform 0.25s ease, filter 0.25s ease;
@@ -176,9 +174,6 @@ export function createUi(): UiModule {
   let activeThresholds: { timeMs: [number, number]; waste: [number, number] } | undefined;
   let resultFactEl: HTMLElement;
   let resultFactPromptEl: HTMLElement; // the "tap to flip" hint shown before the fact is revealed
-  let resultRestHintEl: HTMLElement;
-  let energyPillEl: HTMLElement;
-  let energyEmptyEl: HTMLElement;
 
   function injectStyles(): void {
     if (document.getElementById(STYLE_ID)) return;
@@ -283,12 +278,6 @@ export function createUi(): UiModule {
   function buildLevelSelectScreen(): HTMLElement {
     const screen = el('div', { className: 'cs-screen' });
     screen.append(el('h1', { className: 'cs-title', text: STRINGS.levelSelect.title }));
-    energyPillEl = el('div', { className: 'cs-pill cs-energy-pill', text: '' });
-    energyPillEl.title = STRINGS.energy.cost;
-    screen.append(energyPillEl);
-    energyEmptyEl = el('div', { className: 'cs-rest-hint', text: STRINGS.energy.empty });
-    energyEmptyEl.style.display = 'none';
-    screen.append(energyEmptyEl);
     levelGridEl = el('div', { className: 'cs-grid' });
     screen.append(levelGridEl);
     const switchBtn = el('button', { className: 'cs-btn', text: STRINGS.menu.switchProfile, onClick: () => setScene('profile') });
@@ -468,10 +457,7 @@ export function createUi(): UiModule {
     );
     card.append(row);
 
-    resultRestHintEl = el('div', { className: 'cs-rest-hint', text: '' });
-    resultRestHintEl.style.display = 'none';
-    card.append(resultRestHintEl);
-
+    // Optional footnote under the actions — never the centerpiece of a win.
     resultFactEl = el('div', { className: 'cs-fact-card' });
     resultFactEl.style.display = 'none';
     resultFactPromptEl = el('div', { className: 'cs-fact-prompt', text: STRINGS.result.tapToFlip });
@@ -519,16 +505,9 @@ export function createUi(): UiModule {
     } else if (scene === 'menu') {
       currentProfileId = (data as { profile: Profile } | undefined)?.profile?.id ?? currentProfileId;
     } else if (scene === 'levelselect') {
-      const d = data as {
-        profile: Profile;
-        levels: LevelDef[];
-        energyLabel?: string;
-        energyEmpty?: boolean;
-      };
+      const d = data as { profile: Profile; levels: LevelDef[] };
       currentProfileId = d.profile.id;
       renderLevelSelect(d.profile, d.levels);
-      if (energyPillEl) energyPillEl.textContent = d.energyLabel ?? '';
-      if (energyEmptyEl) energyEmptyEl.style.display = d.energyEmpty ? 'block' : 'none';
     } else if (scene === 'ecodex') {
       const d = data as { profile: Profile };
       currentProfileId = d.profile.id;
@@ -661,7 +640,7 @@ export function createUi(): UiModule {
     return STRINGS.tutorial.holdToRain;
   }
 
-  function showResult(stars: number, factCardText?: string, breakdown?: StarBreakdown, restHint?: boolean): void {
+  function showResult(stars: number, factCardText?: string, breakdown?: StarBreakdown): void {
     resultStarsEl.innerHTML = '';
     for (let i = 0; i < 3; i++) {
       const filled = i < stars;
@@ -671,16 +650,6 @@ export function createUi(): UiModule {
     }
 
     renderStarWhy(stars, breakdown);
-
-    // Gentle rest nudge after a long session — never a hard lock.
-    if (resultRestHintEl) {
-      if (restHint) {
-        resultRestHintEl.textContent = STRINGS.result.restHint;
-        resultRestHintEl.style.display = 'block';
-      } else {
-        resultRestHintEl.style.display = 'none';
-      }
-    }
 
     if (factCardText) {
       // Optional footnote only — actions (next/back) are already above this.

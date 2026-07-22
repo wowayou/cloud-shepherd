@@ -263,6 +263,27 @@ describe('sim: raining onto a field', () => {
     expect(state.fields[0].moisture).toBe(0);
   });
 
+  it('waters a field when the cloud is near it, not only dead-center (wider rain reach)', () => {
+    // Round 16.1: RAIN_REACH was 0.055 (~glue to field). Now 0.12 so a nearby
+    // hold still counts. Autopilot and kids both benefit; waste still exists
+    // far from any field.
+    const sim = createSim();
+    const level = makeLevel();
+    const state = sim.init(level);
+    const field = state.fields[0];
+    const offset = field.radius + level.worldH * 0.09; // was outside old reach, inside new
+    state.cloud.pos = { x: field.pos.x - offset, y: field.pos.y };
+    state.cloud.water = 80;
+    const intent: InputIntent = {
+      pointerActive: true,
+      pointer: { ...state.cloud.pos },
+      rainHeld: true,
+      rainPressure: (1.0 - 0.3) / 1.2,
+    };
+    for (let i = 0; i < 60; i++) sim.step(state, intent, DT);
+    expect(field.moisture).toBeGreaterThan(10);
+  });
+
   it('defaults missing rainPressure to mid-strength so rainHeld-only callers keep rate×1', () => {
     // Autopilot and older tests only set rainHeld. The default pressure must
     // land on rateMul≈1.0 so calibrated star gates and "every level completes"

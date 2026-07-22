@@ -58,13 +58,6 @@ export const STRINGS = {
     // (round 16: "你知道吗" felt too intrusive after a win).
     knowThis: '小知识',
     tapToFlip: '想看就点',
-    restHint: '玩很久啦，出去走走再来好不好？',
-  },
-
-  energy: {
-    label: '今日体力',
-    empty: '今天玩得够多啦，过一会儿再来或明天再玩',
-    cost: '开一关用 1 点体力',
   },
 
   // How stars are earned. Hard tier grades on two things — how long you took

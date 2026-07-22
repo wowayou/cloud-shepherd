@@ -11,7 +11,7 @@ progress to the next level. It has been manually verified end-to-end in a
 real Chromium browser (not just `npm test`/typecheck — see "the
 pointer-events bug" below for why that distinction matters).
 
-Rounds 1–16 are **done** — the table below is complete; there is no
+Rounds 1–16 are **done** (16.1 retracts energy + soak chrome) — the table below is complete; there is no
 outstanding `dispatched`/`in review` work. The game deploys to GitHub
 Pages via `.github/workflows/deploy.yml` on every push to main. Wind is a
 real mechanic again (round 7). Rain is continuous (round 9). Layouts can
@@ -51,7 +51,7 @@ actually did the work.
 | 13 | cross-module (eco-dex + ambient pad) | main session (Opus) | done | Profile ecoDex unlocks flower/butterfly/bee on fieldBloom (matches render eco). New ecodex scene from level-select. Soft sun-keyed ambient pad (optional setAmbient) under rain. Storage v2 with v1 migrate. Tests 43→44. |
 | 14 | cross-module (seasons + L19–20) | main session (Opus) | done | Optional LevelDef.season tints sky/land; tiny evap bias (summer ×1.12, winter ×0.88). L19 夏天的太阳, L20 秋天的雨. Never a hard gate. Calibrate ok. |
 | 15 | cross-module (daily challenge) | main session (Opus) | done | Date-seeded LevelDef id=900 via mulberry32(YYYYMMDD). Level-select 今日天气 button. Same day = same layout; no server. Completability tests for several seeds. Daily next → level list. Ceiling-raise Phase 1–meta slice closed. Tests 44→49. |
-| 16 | cross-module (ground soak + soft facts + energy + wind/bird art) | main session (Opus) | done | **Ground soak**: rain off-field becomes a wet disc that bleeds into nearby fields (fixes "must glue to field"). **Facts**: result card is a quiet footnote *below* next/back, no glow. **Energy**: 5/day non-IAA, 20min regen, no ads. Rest hint after 12min play. **Art**: wind ribbons + fleshed bird flock. Tests 49→54. |
+| 16 | cross-module (play feel + art + softer facts) | main session (Opus) | done | **Wider rain reach** 0.055→0.12 (no soak discs — those looked wrong). **Facts** demoted to footnote under Next. **Energy system removed** (did not match level count; wrong for this game). Wind ribbons + bird flock art kept. Honest design note: ceiling-raise meta (daily/eco/seasons) stacked features; core verb still needs playtest, not more systems. |
 | 7 | cross-module (wind, obstacles, levels, stars) | main session (Opus) | done | Driven by a second playtest ("怎么才能三星呀，你也没明确说明；加风阻；通关之后的滚动条有时候会莫名卡住；再多设计一些关卡，加点动态障碍"). **Wind is a real mechanic again** — see the rewritten section below; the round-2 "wind is cosmetic" decision is now reversed with the user's explicit go-ahead. **Three dynamic obstacles** (热气流 / 飞鸟群 / 冷空气团) with sim, render, audio and per-obstacle events. **Five new levels (11–15)**, one per obstacle then two combining them. **Star criteria are finally stated**: the 3★ gate on the level-select card, a live `⏱ x/ys 💧 a/b` pill in the HUD, and a result-screen breakdown naming which gate you missed. **Two bugs found and fixed en route** — the level-select grid was unscrollable (`ec2fffc`) and clamping left phantom velocity (below). Tests 21 → 32; `tools/` gained the calibration rig round 2 used but never committed |
 
 ### The clamped-spring bug: holding low over a field silently did nothing
@@ -100,6 +100,19 @@ than weather.
 L7/L8 now deliver what their names promise: L7 parks the cloud 34u downwind
 (~⅓ of a field's ~86u rain-catch radius, so you must aim upwind to water
 accurately), L8 swings between ~2u and ~54u on a 3.2s gust cycle.
+
+### Round 16.1: retract energy + soak chrome; keep the real fixes
+
+User feedback after 16: energy is unnecessary (level count already paces a
+session); soak discs look wrong; residual dissatisfaction may mean the *core*
+loop, not the missing features, is the problem.
+
+**Kept from 16:** wider rain reach (0.12), soft fact footnote, wind/bird art,
+no glowing 你知道吗 billboard.
+**Removed:** daily energy module, rest-hint gate, GroundSoak sim/render/tests.
+**Design honesty:** stacking seasons/daily/eco-dex without fixing "is dragging
+a cloud to water fields actually fun for 6 minutes?" was the wrong altitude.
+Next work should be playtest-led on the core verb, not more meta systems.
 
 ### Round 16: rain lands on the ground + softer session design
 

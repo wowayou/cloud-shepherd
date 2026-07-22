@@ -97,20 +97,12 @@ const BIRD_HIT_LOSS = 9; // water knocked loose per strike
 const BIRD_HIT_COOLDOWN_MS = 700; // one flock can't drain a cloud by grazing it
 
 const ABSORB_BAND_FRAC = 0.11; // how close to the sea surface counts as "flying low"
-// Direct "cloud over field" capture radius. Still the *best* way to water, but
-// no longer the only way — see SOAK_* below for ground landing.
-const RAIN_REACH_FRAC = 0.055;
-// Round 16: rain that misses a field lands as a ground soak disc. Nearby fields
-// draw from it over SOAK_LIFE_MS with inverse-distance weight. This is the fix
-// for "only works when the cloud is glued to the field" — real rain hits the
-// ground first. Deliberate simplifications: no height field, no puddles that
-// re-evaporate into free clouds, no flow between soaks. Cap soaks so a long
-// hold over empty dirt doesn't allocate forever.
-const SOAK_RADIUS_FRAC = 0.14; // ~100u at worldH 720 — about a field and a half
-const SOAK_LIFE_MS = 2200;
-const SOAK_CAPTURE_FRAC = 0.7; // share of missed rain that becomes soak (rest still waste)
-const SOAK_BLEED_PER_SEC = 18; // max water/sec a soak can feed into fields combined
-const SOAK_MAX = 24;
+// Extra radius beyond a field's own radius that still counts as "over it".
+// Round 16.1: was 0.055 (~40u) which forced the cloud dead-center on the field
+// and felt like "you have to glue the cloud to the dirt". Raised to 0.12 so a
+// nearby hold still waters — no soak discs, no extra chrome, just a fairer
+// catch radius. Waste still exists far from any field.
+const RAIN_REACH_FRAC = 0.12;
 
 const MOUNTAIN_LEAK_RATE = 14; // water/sec lost while clipping a mountain
 // Safety buffer (world-units, as a frac of worldH) above a peak within which the
@@ -273,7 +265,6 @@ function buildInitialState(level: LevelRuntime): GameState {
         ? level.snowLineN * worldH
         : null,
     season: level.season ?? null,
-    soaks: [],
     particles: [],
     stats: { elapsedMs: 0, waterEvaporated: 0, waterRained: 0, waterWasted: 0 },
     bounds: { w: worldW, h: worldH },
@@ -627,8 +618,9 @@ export function createSim(): SimModule {
         // Not over a field. Priority:
         //  1) snow line + mountain → freeze
         //  2) mountain slope → delayed runoff
-        //  3) otherwise → ground soak (feeds nearby fields over ~2s)
-        // Only the unrecovered fraction counts as waste.
+        //  3) otherwise → waste
+        // (Round 16.1 removed ground-soak discs: the fix for "must glue to field"
+        // is a wider RAIN_REACH, not extra chrome that looked wrong.)
         const slope = findMountainUnder(state.mountains, state.cloud.pos.x);
         const aboveSnow =
           state.snowLineY !== null && state.cloud.pos.y < state.snowLineY;
@@ -661,35 +653,7 @@ export function createSim(): SimModule {
             events.push({ type: 'runoff', amount: captured, mountainId: slope.id });
           }
         } else {
-          // Ground soak: rain hit dirt/grass, not a field. Most of it becomes a
-          // wet disc that nearby fields can drink from; a small soak-away waste
-          // keeps "aim roughly at the field" meaningful for stars.
-          const captured = amt * SOAK_CAPTURE_FRAC;
-          const wastedNow = amt - captured;
-          if (wastedNow > 0) state.stats.waterWasted += wastedNow;
-          if (captured > 0.001) {
-            // Merge into a nearby existing soak so a continuous hold doesn't
-            // spawn dozens of discs under the same cloud.
-            const mergeR = worldH * SOAK_RADIUS_FRAC * 0.45;
-            let merged = false;
-            for (const s of state.soaks) {
-              if (Math.hypot(s.pos.x - state.cloud.pos.x, s.pos.y - state.cloud.pos.y) < mergeR) {
-                s.amount += captured;
-                s.lifeMs = Math.max(s.lifeMs, SOAK_LIFE_MS * 0.7);
-                merged = true;
-                break;
-              }
-            }
-            if (!merged) {
-              state.soaks.push({
-                pos: { x: state.cloud.pos.x, y: state.cloud.pos.y },
-                amount: captured,
-                lifeMs: SOAK_LIFE_MS,
-                radius: worldH * SOAK_RADIUS_FRAC,
-              });
-              if (state.soaks.length > SOAK_MAX) state.soaks.shift();
-            }
-          }
+          state.stats.waterWasted += amt;
         }
       }
 
@@ -739,42 +703,6 @@ export function createSim(): SimModule {
         });
         events.push({ type: 'snowMelt', amount: melted, mountainId: pack.mountainId });
       }
-    }
-
-    // Ground soaks bleed into nearby non-bloom fields (inverse-distance weight).
-    if (state.soaks.length > 0) {
-      const nextSoaks: typeof state.soaks = [];
-      for (const soak of state.soaks) {
-        soak.lifeMs -= dtMs;
-        if (soak.lifeMs <= 0 || soak.amount <= 0.001) {
-          // Leftover water that never reached a field is waste.
-          if (soak.amount > 0.001) state.stats.waterWasted += soak.amount;
-          continue;
-        }
-        // Collect fields in range with positive weight.
-        const targets: { f: (typeof state.fields)[0]; w: number }[] = [];
-        let wSum = 0;
-        for (const f of state.fields) {
-          if (f.state === 'bloom') continue;
-          const d = Math.hypot(f.pos.x - soak.pos.x, f.pos.y - soak.pos.y);
-          if (d > soak.radius + f.radius) continue;
-          // Closer = heavier share; on top of the field center → full weight.
-          const w = 1 / Math.max(8, d);
-          targets.push({ f, w });
-          wSum += w;
-        }
-        if (targets.length > 0 && wSum > 0) {
-          const bleed = Math.min(soak.amount, SOAK_BLEED_PER_SEC * dt);
-          for (const t of targets) {
-            const share = bleed * (t.w / wSum);
-            t.f.moisture += share;
-          }
-          soak.amount -= bleed;
-        }
-        if (soak.amount > 0.001 && soak.lifeMs > 0) nextSoaks.push(soak);
-        else if (soak.amount > 0.001) state.stats.waterWasted += soak.amount;
-      }
-      state.soaks = nextSoaks;
     }
 
     // Deliver delayed runoff packets. Water that finds no field (fieldId -1)

@@ -10,6 +10,19 @@ what was reasoned. Prefer "we tried X, it cost Y" over "best practice is X".
 
 ---
 
+## Product direction
+
+**2026-07-23 — Feature stacking is not playtesting.** After a solid core loop
+(drag cloud, drink, rain, bloom), we shipped rain pressure, multi-sea, runoff,
+snow, eco-dex, ambient pad, seasons, daily challenge, ground soaks, and energy
+in rapid succession. The user's next feedback was still "this doesn't feel
+right" and "maybe we started wrong" — and they were right to question altitude.
+Energy mismatched the level count; soak chrome papered over a too-tight hitbox
+with ugly visuals. The durable fix for "must glue to field" was one constant
+(`RAIN_REACH 0.055→0.12`), not a new subsystem. Transferable: when the player
+complains about the verb, widen/retune the verb first; do not add a parallel
+system that draws worse and needs its own tests.
+
 ## Rain / spatial fairness
 
 **2026-07-23 — Rain should hit the ground first.** A hitbox that only waters

@@ -17,14 +17,6 @@ import { createLevels } from '../levels/index.ts';
 import { createInput } from '../input/index.ts';
 import { createAudio } from '../audio/index.ts';
 import { createUi, factCardText } from '../ui/index.ts';
-import {
-  canStartLevel,
-  energyLabel,
-  getEnergy,
-  noteSessionPlaying,
-  shouldShowRestHint,
-  spendEnergy,
-} from '../levels/energy.ts';
 import { startLoop } from './loop.ts';
 
 const WORLD_H = 720;
@@ -122,7 +114,6 @@ export function bootGame(canvas: HTMLCanvasElement, uiRoot: HTMLElement): () => 
     gameState.cloud.pos.x = (gameState.cloud.pos.x / oldW) * newW;
     gameState.particles = []; // ephemeral; stale positions would rain in the wrong spot
     gameState.runoff = []; // hitX was in old world coords; drop in-flight packets
-    gameState.soaks = []; // same — positions are world-space
   }
 
   /** Idempotent: stops the looping rain sound if it is playing. The sim also
@@ -142,39 +133,15 @@ export function bootGame(canvas: HTMLCanvasElement, uiRoot: HTMLElement): () => 
     // Always re-read from the store: `profile` may be a stale snapshot from
     // when the player entered the level, and recordClear() writes to storage,
     // not into that object — using it as-is shows cleared levels as locked.
-    // Energy is re-read every open so passive regen is visible.
     const fresh = levels.progress.getProfile(profile.id) ?? profile;
     currentProfile = fresh;
     scene = 'levelselect';
-    ui.setScene('levelselect', {
-      profile: fresh,
-      levels: levels.all(),
-      energy: getEnergy(),
-      energyLabel: energyLabel(),
-    });
+    ui.setScene('levelselect', { profile: fresh, levels: levels.all() });
   }
 
   function startLevel(levelId: number, tier: Tier): void {
     const def = levels.byId(levelId);
     if (!def) return;
-
-    // Daily energy (round 16): non-IAA pacing. Empty → stay on level select with
-    // a soft message; never sell a refill, never force an ad.
-    if (!canStartLevel()) {
-      if (currentProfile) {
-        goToLevelSelect(currentProfile);
-        // Surface the empty state via the level-select energy pill / alert path.
-        ui.setScene('levelselect', {
-          profile: currentProfile,
-          levels: levels.all(),
-          energy: getEnergy(),
-          energyEmpty: true,
-        });
-      }
-      return;
-    }
-    spendEnergy();
-
     currentLevelDef = def;
     currentTier = tier;
 
@@ -188,7 +155,7 @@ export function bootGame(canvas: HTMLCanvasElement, uiRoot: HTMLElement): () => 
     gameState = sim.init(runtime);
     paused = false;
     scene = 'playing';
-    ui.setScene('playing', { level: def, tier, energyLabel: energyLabel() });
+    ui.setScene('playing', { level: def, tier });
   }
 
   function handleSimEvents(events: SimEvent[]): void {
@@ -212,17 +179,12 @@ export function bootGame(canvas: HTMLCanvasElement, uiRoot: HTMLElement): () => 
         const factKey = currentLevelDef.factCardKey as FactCardKey | undefined;
         scene = 'result';
         ui.setScene('result');
-        ui.showResult(
-          stars,
-          factKey ? factCardText(factKey) : undefined,
-          {
-            tier: currentTier,
-            elapsedMs: e.stats.elapsedMs,
-            waste: e.stats.waterWasted,
-            thresholds: currentLevelDef.tiers[currentTier].starThresholds,
-          },
-          shouldShowRestHint(),
-        );
+        ui.showResult(stars, factKey ? factCardText(factKey) : undefined, {
+          tier: currentTier,
+          elapsedMs: e.stats.elapsedMs,
+          waste: e.stats.waterWasted,
+          thresholds: currentLevelDef.tiers[currentTier].starThresholds,
+        });
       }
     }
   }
@@ -319,7 +281,6 @@ export function bootGame(canvas: HTMLCanvasElement, uiRoot: HTMLElement): () => 
   const stopLoop = startLoop({
     fixedUpdate(dtMs) {
       if (scene !== 'playing' || paused || !gameState) return;
-      noteSessionPlaying(dtMs);
       const intent: InputIntent = input.read(gameState);
       const events = sim.step(gameState, intent, dtMs);
       if (events.length) handleSimEvents(events);

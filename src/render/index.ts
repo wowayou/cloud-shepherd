@@ -333,27 +333,6 @@ function drawTinyTree(ctx: CanvasRenderingContext2D, x: number, y: number, h: nu
   ctx.fill();
 }
 
-/** Soft wet rings where rain hit the ground (round 16 soaks). */
-function drawSoaks(ctx: CanvasRenderingContext2D, state: GameState): void {
-  if (state.soaks.length === 0) return;
-  const lifeMax = 2200; // matches SOAK_LIFE_MS in sim
-  ctx.save();
-  for (const s of state.soaks) {
-    const life01 = Math.max(0, Math.min(1, s.lifeMs / lifeMax));
-    const fill01 = Math.max(0, Math.min(1, s.amount / 30));
-    const alpha = 0.12 + 0.28 * life01 * (0.4 + 0.6 * fill01);
-    const r = s.radius * (0.55 + 0.45 * life01);
-    ctx.fillStyle = `rgba(70, 140, 200, ${alpha.toFixed(3)})`;
-    ctx.beginPath();
-    ctx.ellipse(s.pos.x, s.pos.y, r, r * 0.45, 0, 0, Math.PI * 2);
-    ctx.fill();
-    ctx.strokeStyle = `rgba(255,255,255,${(0.2 * life01).toFixed(3)})`;
-    ctx.lineWidth = Math.max(1, state.bounds.h * 0.003);
-    ctx.stroke();
-  }
-  ctx.restore();
-}
-
 /**
  * Short blue trickle from a runoff hit toward its destination field. Pure
  * visual — progress is (1 - delayMs/RUNOFF_DELAY_MS), so it finishes as the
@@ -1535,7 +1514,6 @@ export function createRender(): RenderModule {
       const pack = state.snow.find((s) => s.mountainId === mi);
       if (pack) drawSnowPack(ctx, m, pack.amount, state.stats.elapsedMs);
     }
-    drawSoaks(ctx, state);
     drawRunoff(ctx, state);
     drawSnowFlakes(ctx, state);
     const windStrength = Math.max(-1, Math.min(1, (state.wind.baseX + state.wind.gustX) / 60));

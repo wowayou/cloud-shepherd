@@ -119,21 +119,6 @@ export interface RainParticle {
   life: number;
 }
 
-/**
- * A disc of ground that recently received rain (round 16). Moisture on nearby
- * fields is fed from these soaks over a short life — rain no longer has to hit
- * the field dead-center to count. Pure sim data; Render may draw a soft wet ring.
- */
-export interface GroundSoak {
-  pos: Vec2;
-  /** Remaining water still available to bleed into nearby fields. */
-  amount: number;
-  /** Milliseconds of life left; fades visuals and stops bleeding at 0. */
-  lifeMs: number;
-  /** Max radius (world units) at which a field can draw from this soak. */
-  radius: number;
-}
-
 export interface SimStats {
   elapsedMs: number;
   waterEvaporated: number;
@@ -200,8 +185,6 @@ export interface GameState {
   snowLineY: number | null;
   /** Optional season for sky/grass tint + tiny evap bias (round 14). */
   season: Season | null;
-  /** Active ground-soak discs (round 16 — rain lands on ground, then feeds fields). */
-  soaks: GroundSoak[];
   particles: RainParticle[];
   stats: SimStats;
   bounds: { w: number; h: number };
@@ -478,5 +461,5 @@ export interface UiModule {
   mount(root: HTMLElement, cb: UiCallbacks): void;
   setScene(scene: Scene, data?: unknown): void;
   updateHud(state: GameState, tier: Tier): void;
-  showResult(stars: number, factCardText?: string, breakdown?: StarBreakdown, restHint?: boolean): void;
+  showResult(stars: number, factCardText?: string, breakdown?: StarBreakdown): void;
 }

@@ -92,9 +92,23 @@ export function idealRun(level: LevelDef, tier: Tier): RunResult {
     }
 
     if (mode === 'drink') {
-      // drink: sit in the middle of the sea, inside the absorb band
-      desiredX = (state.sea.x0 + state.sea.x1) / 2;
-      desiredY = state.sea.y - WORLD_H * ABSORB_BAND_FRAC * 0.45;
+      // drink: sit in the middle of the nearest water body, inside the absorb
+      // band. Multi-sea levels (round 10) need nearest-of, not "always the
+      // first/left sea" — otherwise a field next to a right-side pond would
+      // send the autopilot on a useless cross-map detour every refill.
+      const anchorX = target ? target.pos.x : state.cloud.pos.x;
+      let best = state.seas[0];
+      let bestD = Infinity;
+      for (const s of state.seas) {
+        const mid = (s.x0 + s.x1) / 2;
+        const d = Math.abs(mid - anchorX);
+        if (d < bestD) {
+          bestD = d;
+          best = s;
+        }
+      }
+      desiredX = (best.x0 + best.x1) / 2;
+      desiredY = best.y - WORLD_H * ABSORB_BAND_FRAC * 0.45;
     } else if (target) {
       // water: hover just above the field, well inside the rain-catch radius
       desiredX = target.pos.x;

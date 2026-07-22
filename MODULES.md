@@ -3,19 +3,21 @@
 ## Where things stand
 
 The v1 grey-box milestone turned into a **fully working game**, not just
-stubs: all 16 levels (tutorial + 15, × easy/hard) are playable start to
-finish — drag the cloud, fight the wind, absorb over the sea, rain on
-fields (with continuous intensity as of round 9), bloom, get scored, see a
-fact card, progress to the next level. It has been manually verified
-end-to-end in a real Chromium browser (not just `npm test`/typecheck — see
-"the pointer-events bug" below for why that distinction matters).
+stubs: all 18 levels (tutorial + 17, × easy/hard) are playable start to
+finish — drag the cloud, fight the wind, absorb over seas (single left
+strip, centre lake, or dual coast), rain on fields with continuous
+intensity, bloom (with eco butterflies), get scored, see a fact card,
+progress to the next level. It has been manually verified end-to-end in a
+real Chromium browser (not just `npm test`/typecheck — see "the
+pointer-events bug" below for why that distinction matters).
 
-Rounds 1–9 are **done** — the table below is complete; there is no
+Rounds 1–10 are **done** — the table below is complete; there is no
 outstanding `dispatched`/`in review` work. The game deploys to GitHub
 Pages via `.github/workflows/deploy.yml` on every push to main. Wind is a
-real mechanic again (round 7 reversed the earlier cosmetic decision). The
-ceiling-raise design doc's later phases (hydrology, morphology, seasons,
-meta-game) remain backlog — see Round 9 for what was deliberately cut.
+real mechanic again (round 7). Rain is continuous (round 9). Layouts can
+break the left-sea template (round 10). The ceiling-raise design doc's
+later phases (hydrology runoff, morphology, seasons, meta-game) remain
+backlog — see Round 9 for what was deliberately cut.
 
 So the job for each module now is **refinement, not bootstrapping**: tune
 feel, deepen the art/audio, harden edge cases — without breaking the other
@@ -43,6 +45,7 @@ actually did the work.
 
 | 8 | cross-module (natural-law causality, wind/bird/thermal quality, escalating difficulty) | main session (Opus) | done | Driven by a third playtest asking for causality over captions — see the dedicated section below. Cold-front thaw, mass-scaled wind, a simulated sun driving evaporation/thermals visibly, bird flocks instead of a lone silhouette, wind-swept grass, gusts slowed to read as weather, obstacles now start at level 3 and escalate. Tests 32 → 36 |
 | 9 | cross-module (rain pressure + juice — ceiling-raise Phase 1 slice) | main session (Opus) | done | Driven by the user's ceiling-raise design doc. **Not a wholesale build of the 12-week roadmap** — see the dedicated section below for what was cut and why. Shipped: continuous rain intensity via hold-duration (device-universal; force-touch / second-finger deliberately rejected as 6yo-simplest-path breakers), `rainPressure` on InputIntent/Cloud, rate mul 0.3..1.5 anchored so missing pressure = rate×1.0 (autopilot + star gates unchanged — `calibrate.ts` still all-ok in the 1.35×–3.2× band), particles 40→220 with pressure-scaled density/spray/fall, cloud face moods (idle/drinking/full/raining/chilled), storm-dark underside + drip-hem depth on heavy rain, rainbow on full-bloom + sun + residual rain (optical causality, no caption), rain-loop gain/cutoff track pressure around the round-6 measured anchor. Tests 36 → 39. **Out of scope this round** (still design-doc only): hydrology module, cloud split/morphology, eco-dex, music layers, seasons, sandbox, 32-level chapter plan |
+| 10 | cross-module (eco bloom juice + multi-sea layouts) | main session (Opus) | done | Next ceiling-raise slice after rain pressure. **Eco**: pure-render butterflies/bees on bloomed fields once `bloom01 > 0.55` — no Sim entities, no meta-collection, deterministic via `hash1(field.id)`. **Multi-sea**: `GameState.seas: SeaRegion[]` + optional `LevelDef.seas`; legacy `seaWidthN` still expands to a single left-edge sea so L0–15 need zero edits. Absorb / vapor / face / land-fill / autopilot all use any-of / nearest-of. **Two new levels**: L16 中间的湖 (centre lake, radial fields), L17 两边都是海 (dual coast). Completability autopilot + calibrate all green; tests 39 → 40. **Still out**: hydrology runoff/snow, cloud split, eco-dex, music, seasons |
 | 7 | cross-module (wind, obstacles, levels, stars) | main session (Opus) | done | Driven by a second playtest ("怎么才能三星呀，你也没明确说明；加风阻；通关之后的滚动条有时候会莫名卡住；再多设计一些关卡，加点动态障碍"). **Wind is a real mechanic again** — see the rewritten section below; the round-2 "wind is cosmetic" decision is now reversed with the user's explicit go-ahead. **Three dynamic obstacles** (热气流 / 飞鸟群 / 冷空气团) with sim, render, audio and per-obstacle events. **Five new levels (11–15)**, one per obstacle then two combining them. **Star criteria are finally stated**: the 3★ gate on the level-select card, a live `⏱ x/ys 💧 a/b` pill in the HUD, and a result-screen breakdown naming which gate you missed. **Two bugs found and fixed en route** — the level-select grid was unscrollable (`ec2fffc`) and clamping left phantom velocity (below). Tests 21 → 32; `tools/` gained the calibration rig round 2 used but never committed |
 
 ### The clamped-spring bug: holding low over a field silently did nothing
@@ -91,6 +94,42 @@ than weather.
 L7/L8 now deliver what their names promise: L7 parks the cloud 34u downwind
 (~⅓ of a field's ~86u rain-catch radius, so you must aim upwind to water
 accurately), L8 swings between ~2u and ~54u on a 3.2s gust cycle.
+
+### Round 10: life after bloom + water can live anywhere
+
+The round-9 cut list said the next reopen order was (1) eco-response after
+bloom, (2) a second-sea / pond level template. Both landed here, scoped so
+neither needs a new module.
+
+**Eco (pure render).** Once a field locks `bloom` and `bloom01` eases past
+~0.55, 1–2 butterflies (and a bee on odd-id fields) orbit it on deterministic
+sin paths seeded by `field.id`. No `EcoEntity` type, no Sim events, no
+图鉴 — the design-doc's "水到了，生命自己来" at the lowest cost that still
+reads as causality. Collection / species unlock is still backlog; if we
+want a图鉴 later, *that* is when butterflies become real entities.
+
+**Multi-sea (compat, not a rewrite).** `GameState.seas: SeaRegion[]` replaces
+the singular `sea`. Level authoring:
+- **Legacy** (L0–15): keep writing `seaWidthN` only → resolves to
+  `[{x0:0, x1:seaWidthN·w, y:groundY}]`. Zero data migration.
+- **New templates**: optional `seas: [{normX0, normX1}, …]`. `seaWidthN`
+  stays as a "total water cover" sanity number for the level validator.
+
+Absorb is any-of (same rate, same chill gate, seas never deplete → no
+soft-lock). Render fills full land then punches every sea on top (so a
+centre lake doesn't need a special "land is everything to the right of X"
+code path). Autopilot drinks from the **nearest** sea to the current target
+field, otherwise multi-sea levels would force a cross-map detour every
+refill and look "uncompletable" in the calibration rig.
+
+**Two levels that use it:**
+- L16 中间的湖 — one centre lake, four radial fields. Teaches "water is
+  where you see it" without a new gesture.
+- L17 两边都是海 — dual coast + three midland fields + a gentle optional
+  thermal. Skill is "pick the nearer shore".
+
+Both complete on easy/hard under the autopilot and sit inside the 1.35×–
+3.2× star band with no gate retune of older levels.
 
 ### Round 9: rain as continuous expression (ceiling-raise Phase 1, optimized)
 
@@ -322,7 +361,7 @@ Run before you start, and again before you hand back:
 ```
 npm install
 npm run typecheck   # must stay clean
-npm test            # 39 tests must stay green
+npm test            # 40 tests must stay green
 npm run build        # must succeed
 npm run dev          # then ACTUALLY PLAY IT in a browser — see below
 ```

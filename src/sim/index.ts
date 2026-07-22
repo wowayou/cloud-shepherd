@@ -8,6 +8,7 @@ import type {
   LevelRuntime,
   Mountain,
   RainParticle,
+  SeaRegion,
   SimEvent,
   SimModule,
   Thermal,
@@ -224,11 +225,31 @@ function buildInitialState(level: LevelRuntime): GameState {
     birds,
     coldFronts,
     sun: { dayPhase: DAY_START_PHASE, intensity: sunIntensityAt(DAY_START_PHASE) },
-    sea: { x0: 0, x1: level.seaWidthN * worldW, y: groundY },
+    seas: buildSeas(level, worldW, groundY),
     particles: [],
     stats: { elapsedMs: 0, waterEvaporated: 0, waterRained: 0, waterWasted: 0 },
     bounds: { w: worldW, h: worldH },
   };
+}
+
+/** Resolve LevelDef.seas (or legacy seaWidthN) into world-space SeaRegions. */
+function buildSeas(level: LevelRuntime, worldW: number, groundY: number): SeaRegion[] {
+  if (level.seas && level.seas.length > 0) {
+    return level.seas.map((s) => ({
+      x0: Math.min(s.normX0, s.normX1) * worldW,
+      x1: Math.max(s.normX0, s.normX1) * worldW,
+      y: groundY,
+    }));
+  }
+  return [{ x0: 0, x1: level.seaWidthN * worldW, y: groundY }];
+}
+
+/** True when the cloud is horizontally over any evaporative water body. */
+function overAnySea(seas: SeaRegion[], x: number): SeaRegion | undefined {
+  for (const s of seas) {
+    if (x >= s.x0 && x <= s.x1) return s;
+  }
+  return undefined;
 }
 
 function findFieldUnderCloud(fields: Field[], pos: { x: number; y: number }, worldH: number): Field | undefined {
@@ -424,10 +445,14 @@ export function createSim(): SimModule {
       }
     }
 
-    // sea absorption (must be flying low over the sea band)
-    const overSea = state.cloud.pos.x >= state.sea.x0 && state.cloud.pos.x <= state.sea.x1;
-    const lowOverSea = state.sea.y - state.cloud.pos.y <= worldH * ABSORB_BAND_FRAC;
-    if (!state.cloud.chilled && overSea && lowOverSea && state.cloud.water < state.cloud.maxWater) {
+    // sea absorption (must be flying low over any water body). Multi-sea levels
+    // use the same infinite-source, sun-driven rate as the classic left-edge
+    // sea — the only change is "which horizontal band counts as water".
+    const underSea = overAnySea(state.seas, state.cloud.pos.x);
+    const lowOverSea = underSea
+      ? underSea.y - state.cloud.pos.y <= worldH * ABSORB_BAND_FRAC
+      : false;
+    if (!state.cloud.chilled && underSea && lowOverSea && state.cloud.water < state.cloud.maxWater) {
       // The sun is literally what lifts the water: a weak dawn sun fills the
       // cloud slowly, a noon sun fills it fast. This is the game's core lesson
       // expressed as a rate rather than as a sentence.

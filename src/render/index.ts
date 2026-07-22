@@ -146,41 +146,47 @@ const VAPOR_ABSORB_BAND_FRAC = 0.11;
  */
 function drawVapor(ctx: CanvasRenderingContext2D, state: GameState, timeMs: number): void {
   const { h } = state.bounds;
-  const { sea, cloud } = state;
+  const { seas, cloud } = state;
+  if (seas.length === 0) return;
 
   ctx.save();
   ctx.fillStyle = '#ffffff';
 
-  // Ambient wisps over the sea, always on but scaled by the sun: a weak dawn
-  // sun gives a couple of faint, slow puffs; a noon sun gives a busier, more
-  // opaque rise. This is the same `sun.intensity` that sets the actual
-  // evaporation rate in Sim, so the amount of visible vapor honestly tracks
-  // how fast the cloud is really filling — not a separate decorative number.
+  // Ambient wisps over every water body, always on but scaled by the sun: a
+  // weak dawn sun gives a couple of faint, slow puffs; a noon sun gives a
+  // busier, more opaque rise. This is the same `sun.intensity` that sets the
+  // actual evaporation rate in Sim, so the amount of visible vapor honestly
+  // tracks how fast the cloud is really filling — not a separate decorative number.
   const sunFactor = 0.4 + 0.6 * state.sun.intensity;
   const ambientCount = 2 + Math.round(sunFactor * 3);
-  for (let i = 0; i < ambientCount; i++) {
-    const t = ((timeMs / (5200 - 2000 * sunFactor)) + i / ambientCount) % 1;
-    const x = sea.x0 + (sea.x1 - sea.x0) * (0.15 + 0.7 * hash1(i * 17.3));
-    const sway = Math.sin(t * Math.PI * 3 + i) * h * 0.012;
-    const y = sea.y - t * h * 0.17;
-    ctx.globalAlpha = Math.sin(t * Math.PI) * 0.28 * sunFactor;
-    ctx.beginPath();
-    ctx.arc(x + sway, y, h * 0.011 * (1 + t), 0, Math.PI * 2);
-    ctx.fill();
+  for (let si = 0; si < seas.length; si++) {
+    const sea = seas[si];
+    for (let i = 0; i < ambientCount; i++) {
+      const t = ((timeMs / (5200 - 2000 * sunFactor)) + i / ambientCount + si * 0.17) % 1;
+      const x = sea.x0 + (sea.x1 - sea.x0) * (0.15 + 0.7 * hash1(i * 17.3 + si * 9.1));
+      const sway = Math.sin(t * Math.PI * 3 + i) * h * 0.012;
+      const y = sea.y - t * h * 0.17;
+      ctx.globalAlpha = Math.sin(t * Math.PI) * 0.28 * sunFactor;
+      ctx.beginPath();
+      ctx.arc(x + sway, y, h * 0.011 * (1 + t), 0, Math.PI * 2);
+      ctx.fill();
+    }
   }
 
   // absorbing: a visible stream from the surface into the cloud
-  const overSea = cloud.pos.x >= sea.x0 && cloud.pos.x <= sea.x1;
-  const lowOverSea = sea.y - cloud.pos.y <= h * VAPOR_ABSORB_BAND_FRAC;
-  const drinking = overSea && lowOverSea && cloud.water < cloud.maxWater;
-  if (drinking) {
+  let drinkingSea = seas.find((s) => cloud.pos.x >= s.x0 && cloud.pos.x <= s.x1);
+  const lowOverSea = drinkingSea
+    ? drinkingSea.y - cloud.pos.y <= h * VAPOR_ABSORB_BAND_FRAC
+    : false;
+  const drinking = !!drinkingSea && lowOverSea && cloud.water < cloud.maxWater;
+  if (drinking && drinkingSea) {
     const streamCount = 6;
     for (let i = 0; i < streamCount; i++) {
       const t = ((timeMs / 1100) + i / streamCount) % 1;
       const srcX = cloud.pos.x + (hash1(i * 7.7) - 0.5) * h * 0.16;
       const dstX = cloud.pos.x + (hash1(i * 3.1) - 0.5) * h * 0.05;
       const x = lerp(srcX, dstX, t) + Math.sin(t * Math.PI * 2 + i) * h * 0.008;
-      const y = lerp(sea.y, cloud.pos.y + h * 0.045, t);
+      const y = lerp(drinkingSea.y, cloud.pos.y + h * 0.045, t);
       ctx.globalAlpha = Math.sin(t * Math.PI) * 0.6;
       ctx.beginPath();
       ctx.arc(x, y, h * 0.009 * (1.4 - t * 0.6), 0, Math.PI * 2);
@@ -200,53 +206,60 @@ function drawPuff(ctx: CanvasRenderingContext2D, x: number, y: number, r: number
 
 function drawGroundAndSea(ctx: CanvasRenderingContext2D, state: GameState, timeMs: number): void {
   const { w, h } = state.bounds;
-  const { sea } = state;
+  const seas = state.seas;
+  // Ground line is the same for every sea (all sit on GROUND_Y_FRAC).
+  const groundY = seas[0]?.y ?? h * 0.82;
 
-  // land, from the sea's edge to the right side of the world
-  const landGrad = ctx.createLinearGradient(0, sea.y, 0, h);
+  // Full land strip first, then punch water bodies on top. This is what lets
+  // multi-sea layouts (centre lake, dual coast) work without special-casing
+  // "land is everything to the right of the one sea".
+  const landGrad = ctx.createLinearGradient(0, groundY, 0, h);
   landGrad.addColorStop(0, '#d9c398');
   landGrad.addColorStop(1, '#c2a877');
   ctx.fillStyle = landGrad;
-  ctx.fillRect(sea.x1, sea.y, w - sea.x1, h - sea.y);
+  ctx.fillRect(0, groundY, w, h - groundY);
 
-  // sea
-  const seaGrad = ctx.createLinearGradient(0, sea.y, 0, h);
-  seaGrad.addColorStop(0, '#57b8e0');
-  seaGrad.addColorStop(1, '#2f7fb0');
-  ctx.fillStyle = seaGrad;
-  ctx.fillRect(sea.x0, sea.y, sea.x1 - sea.x0, h - sea.y);
+  for (const sea of seas) {
+    const seaGrad = ctx.createLinearGradient(0, sea.y, 0, h);
+    seaGrad.addColorStop(0, '#57b8e0');
+    seaGrad.addColorStop(1, '#2f7fb0');
+    ctx.fillStyle = seaGrad;
+    ctx.fillRect(sea.x0, sea.y, sea.x1 - sea.x0, h - sea.y);
 
-  // gentle shimmer lines
-  ctx.save();
-  ctx.strokeStyle = 'rgba(255,255,255,0.35)';
-  ctx.lineWidth = Math.max(1, h * 0.004);
-  const waveCount = 4;
-  for (let i = 0; i < waveCount; i++) {
-    const yy = sea.y + h * 0.03 + i * h * 0.045;
-    const phase = timeMs / 900 + i;
-    ctx.beginPath();
-    for (let x = sea.x0; x <= sea.x1; x += 12) {
-      const yy2 = yy + Math.sin(x * 0.02 + phase) * h * 0.006;
-      if (x === sea.x0) ctx.moveTo(x, yy2);
-      else ctx.lineTo(x, yy2);
+    // gentle shimmer lines
+    ctx.save();
+    ctx.strokeStyle = 'rgba(255,255,255,0.35)';
+    ctx.lineWidth = Math.max(1, h * 0.004);
+    const waveCount = 4;
+    for (let i = 0; i < waveCount; i++) {
+      const yy = sea.y + h * 0.03 + i * h * 0.045;
+      const phase = timeMs / 900 + i;
+      ctx.beginPath();
+      for (let x = sea.x0; x <= sea.x1; x += 12) {
+        const yy2 = yy + Math.sin(x * 0.02 + phase) * h * 0.006;
+        if (x === sea.x0) ctx.moveTo(x, yy2);
+        else ctx.lineTo(x, yy2);
+      }
+      ctx.stroke();
     }
-    ctx.stroke();
-  }
-  ctx.restore();
+    ctx.restore();
 
-  // soft foam line at the shore
-  ctx.save();
-  ctx.strokeStyle = 'rgba(255,255,255,0.55)';
-  ctx.lineWidth = Math.max(1.5, h * 0.006);
-  ctx.lineCap = 'round';
-  ctx.beginPath();
-  for (let y = sea.y; y <= h; y += 8) {
-    const xx = sea.x1 + Math.sin(y * 0.15 + timeMs / 700) * h * 0.004;
-    if (y === sea.y) ctx.moveTo(xx, y);
-    else ctx.lineTo(xx, y);
+    // soft foam lines on both shores of this water body
+    ctx.save();
+    ctx.strokeStyle = 'rgba(255,255,255,0.55)';
+    ctx.lineWidth = Math.max(1.5, h * 0.006);
+    ctx.lineCap = 'round';
+    for (const edge of [sea.x0, sea.x1]) {
+      ctx.beginPath();
+      for (let y = sea.y; y <= h; y += 8) {
+        const xx = edge + Math.sin(y * 0.15 + timeMs / 700) * h * 0.004 * (edge === sea.x0 ? -1 : 1);
+        if (y === sea.y) ctx.moveTo(xx, y);
+        else ctx.lineTo(xx, y);
+      }
+      ctx.stroke();
+    }
+    ctx.restore();
   }
-  ctx.stroke();
-  ctx.restore();
 }
 
 // ————————————————————————————————————————————————————————————
@@ -468,6 +481,117 @@ const FLOWER_PALETTES: [string, string, string][] = [
 ];
 
 /**
+ * Post-bloom life. Pure function of (field, timeMs) — no GameState mutation,
+ * no Sim events, no new types. Butterflies orbit a bloomed field once
+ * bloom01 has settled enough that the flowers are visibly open (~0.55+).
+ * Deterministic via hash1(field.id) so two fields never twin-sync, and the
+ * dual-run equality tests stay green (Render is never asserted on bytes
+ * across runs, but this still avoids Math.random).
+ *
+ * Why not a Sim EcoEntity[]: round-9 design critique parked eco-dex / meta
+ * collection; this is the "look, the world woke up" juice only. If we later
+ * want a图鉴 that records species, that is when they become real entities.
+ */
+function drawButterfly(
+  ctx: CanvasRenderingContext2D,
+  x: number,
+  y: number,
+  size: number,
+  flap: number,
+  alpha: number,
+  seed: number,
+): void {
+  if (alpha <= 0.02) return;
+  const wingOpen = 0.55 + 0.45 * Math.abs(Math.sin(flap * 8));
+  const bodyHue = hash1(seed + 3);
+  // Two soft palettes so neighbouring fields don't clone each other.
+  const wingA = bodyHue > 0.5 ? 'rgba(255, 170, 90, ' : 'rgba(160, 140, 255, ';
+  const wingB = bodyHue > 0.5 ? 'rgba(255, 220, 140, ' : 'rgba(210, 190, 255, ';
+  ctx.save();
+  ctx.translate(x, y);
+  ctx.globalAlpha = alpha;
+  // body
+  ctx.fillStyle = 'rgba(55, 45, 40, 0.85)';
+  ctx.beginPath();
+  ctx.ellipse(0, 0, size * 0.18, size * 0.55, 0, 0, Math.PI * 2);
+  ctx.fill();
+  // wings — mirrored ellipses that "flap" by scaling on X
+  for (const dir of [-1, 1]) {
+    ctx.save();
+    ctx.scale(dir * wingOpen, 1);
+    ctx.fillStyle = wingA + (0.75).toFixed(2) + ')';
+    ctx.beginPath();
+    ctx.ellipse(size * 0.55, -size * 0.15, size * 0.55, size * 0.42, -0.35, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.fillStyle = wingB + (0.7).toFixed(2) + ')';
+    ctx.beginPath();
+    ctx.ellipse(size * 0.5, size * 0.28, size * 0.4, size * 0.32, 0.4, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.restore();
+  }
+  ctx.restore();
+}
+
+function drawBee(
+  ctx: CanvasRenderingContext2D,
+  x: number,
+  y: number,
+  size: number,
+  flap: number,
+  alpha: number,
+): void {
+  if (alpha <= 0.02) return;
+  ctx.save();
+  ctx.translate(x, y);
+  ctx.globalAlpha = alpha;
+  // yellow body with two dark bands
+  ctx.fillStyle = '#f0c84a';
+  ctx.beginPath();
+  ctx.ellipse(0, 0, size * 0.55, size * 0.38, 0, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.fillStyle = 'rgba(40, 30, 20, 0.85)';
+  ctx.fillRect(-size * 0.12, -size * 0.32, size * 0.1, size * 0.64);
+  ctx.fillRect(size * 0.1, -size * 0.32, size * 0.1, size * 0.64);
+  // translucent wings
+  const wingY = -size * 0.15 + Math.sin(flap * 14) * size * 0.08;
+  ctx.fillStyle = 'rgba(220, 235, 255, 0.55)';
+  ctx.beginPath();
+  ctx.ellipse(-size * 0.15, wingY, size * 0.35, size * 0.22, -0.4, 0, Math.PI * 2);
+  ctx.ellipse(size * 0.15, wingY, size * 0.35, size * 0.22, 0.4, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.restore();
+}
+
+function drawFieldEco(ctx: CanvasRenderingContext2D, f: Field, timeMs: number): void {
+  if (f.state !== 'bloom') return;
+  // Wait until flowers have mostly popped (bloom01 eases 0→1 after lock).
+  const appear = clamp01((f.bloom01 - 0.55) / 0.35);
+  if (appear <= 0) return;
+
+  const t = timeMs / 1000;
+  const seed = f.id * 13.37 + 4;
+  // One butterfly always; a bee joins on odd-id fields so multi-field levels
+  // get a little variety without a species table.
+  const butterflies = 1 + (f.id % 2 === 0 ? 1 : 0);
+  for (let i = 0; i < butterflies; i++) {
+    const s = seed + i * 19;
+    const speed = 0.55 + hash1(s) * 0.55;
+    const phase = t * speed + hash1(s + 1) * Math.PI * 2;
+    const orbit = f.radius * (0.85 + hash1(s + 2) * 0.55);
+    const x = f.pos.x + Math.cos(phase) * orbit;
+    const y = f.pos.y - f.radius * (0.35 + 0.35 * hash1(s + 3)) + Math.sin(phase * 1.35) * f.radius * 0.4;
+    drawButterfly(ctx, x, y, f.radius * (0.11 + hash1(s + 4) * 0.04), phase, appear, s);
+  }
+  if (f.id % 2 === 1) {
+    const s = seed + 99;
+    const phase = t * 1.1 + hash1(s) * 6;
+    const x = f.pos.x + Math.cos(phase * 0.7) * f.radius * 0.55;
+    const y = f.pos.y - f.radius * 0.7 + Math.sin(phase) * f.radius * 0.2;
+    drawBee(ctx, x, y, f.radius * 0.09, phase, appear * 0.95);
+  }
+}
+
+/**
  * `wind` is the signed wind strength normalized to roughly -1..1 (positive =
  * blowing right). Round 8: wind used to only move the cloud and draw sky
  * streaks — the scenery itself never reacted, which is a big part of why it
@@ -576,6 +700,10 @@ function drawField(ctx: CanvasRenderingContext2D, f: Field, timeMs: number, wind
         drawSparkle(ctx, sx, sy, rx * 0.05, sparkleAlpha * pulse * 0.7, a);
       }
     }
+    // Eco arrives after the flowers settle — pure render, no Sim state. Water
+    // landed, life came: the design-doc's "生态涌现" at the lowest cost that
+    // still reads as causality rather than a particle party.
+    drawFieldEco(ctx, f, timeMs);
   } else if (f.state === 'overwater') {
     ctx.fillStyle = 'rgba(255,255,255,0.3)';
     ctx.beginPath();
@@ -641,17 +769,19 @@ function drawCloudBlob(ctx: CanvasRenderingContext2D, cx: number, cy: number, r:
 type CloudMood = 'idle' | 'drinking' | 'full' | 'raining' | 'chilled';
 
 function cloudMood(state: GameState): CloudMood {
-  const { cloud, sea } = state;
+  const { cloud, seas } = state;
   if (cloud.chilled) return 'chilled';
   if (cloud.raining) return 'raining';
   const wetness = cloud.maxWater > 0 ? cloud.water / cloud.maxWater : 0;
   if (wetness > 0.92) return 'full';
-  // "Drinking" only when actually over the sea with room to fill — matches the
-  // vapor stream drawVapor already draws, so face and stream agree.
-  const overSea =
-    cloud.pos.x >= sea.x0 &&
-    cloud.pos.x <= sea.x1 &&
-    Math.abs(cloud.pos.y - sea.y) < state.bounds.h * 0.18;
+  // "Drinking" only when actually over a water body with room to fill — matches
+  // the vapor stream drawVapor already draws, so face and stream agree.
+  const overSea = seas.some(
+    (s) =>
+      cloud.pos.x >= s.x0 &&
+      cloud.pos.x <= s.x1 &&
+      Math.abs(cloud.pos.y - s.y) < state.bounds.h * 0.18,
+  );
   if (overSea && wetness < 0.98 && wetness > 0.02) return 'drinking';
   return 'idle';
 }

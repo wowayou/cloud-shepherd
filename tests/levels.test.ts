@@ -8,16 +8,26 @@ function makeStats(overrides: Partial<SimStats> = {}): SimStats {
 }
 
 describe('level data', () => {
-  it('defines the tutorial level plus 15 levels, each with both tiers', () => {
-    expect(LEVELS).toHaveLength(16);
+  it('defines the tutorial level plus 17 levels, each with both tiers', () => {
+    expect(LEVELS).toHaveLength(18);
     const ids = LEVELS.map((l) => l.id);
-    expect(ids).toEqual([...Array(16).keys()]);
+    expect(ids).toEqual([...Array(18).keys()]);
     for (const level of LEVELS) {
       expect(level.fields.length).toBeGreaterThan(0);
       expect(level.tiers.easy).toBeDefined();
       expect(level.tiers.hard).toBeDefined();
       expect(level.seaWidthN).toBeGreaterThan(0);
       expect(level.seaWidthN).toBeLessThan(1);
+      // Multi-sea layouts must be well-formed bands; legacy levels omit `seas`
+      // and resolve to a single left-edge sea via seaWidthN.
+      if (level.seas) {
+        expect(level.seas.length).toBeGreaterThan(0);
+        for (const s of level.seas) {
+          expect(s.normX0).toBeLessThan(s.normX1);
+          expect(s.normX0).toBeGreaterThanOrEqual(0);
+          expect(s.normX1).toBeLessThanOrEqual(1);
+        }
+      }
       for (const f of level.fields) {
         expect(f.targetMin).toBeLessThanOrEqual(f.targetMax);
       }
@@ -125,7 +135,7 @@ describe('every level is actually completable', () => {
   // would have caught a thermal parked over a field, a water budget too small
   // for the fields, or a cold front that never lets go — none of which any
   // amount of static data validation can see.
-  it('completes all 16 levels on both tiers, and an ideal run earns 3 stars', () => {
+  it('completes all 18 levels on both tiers, and an ideal run earns 3 stars', () => {
     for (const level of LEVELS) {
       for (const tier of ['easy', 'hard'] as const) {
         const r = idealRun(level, tier);

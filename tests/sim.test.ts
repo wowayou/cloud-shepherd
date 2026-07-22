@@ -70,6 +70,40 @@ describe('sim: absorbing over the sea', () => {
 
     expect(state.cloud.water).toBeLessThanOrEqual(level.tiers.easy.cloudMaxWater);
   });
+
+  it('absorbs from a non-left sea defined via LevelDef.seas (multi-sea layouts)', () => {
+    // Round 10: water bodies can sit anywhere. A centre lake must drink the
+    // same way the classic left-edge sea does — same rate, same chill gate.
+    const sim = createSim();
+    const level = makeLevel({
+      seaWidthN: 0.28,
+      seas: [{ normX0: 0.4, normX1: 0.6 }],
+      fields: [{ normX: 0.2, normY: 0.82, targetMin: 40, targetMax: 100, radius: 0.06 }],
+    });
+    const state = sim.init(level);
+    expect(state.seas).toHaveLength(1);
+    expect(state.seas[0].x0).toBeCloseTo(level.worldW * 0.4, 0);
+    expect(state.seas[0].x1).toBeCloseTo(level.worldW * 0.6, 0);
+
+    // over the centre lake
+    const overLake: InputIntent = {
+      pointerActive: true,
+      pointer: { x: level.worldW * 0.5, y: level.worldH * 0.8 },
+      rainHeld: false,
+    };
+    runSteps(sim, state, overLake, 200);
+    expect(state.cloud.water).toBeGreaterThan(20);
+
+    // over dry land (left of the lake) — must NOT drink
+    const dry = sim.init(level);
+    const overLand: InputIntent = {
+      pointerActive: true,
+      pointer: { x: level.worldW * 0.15, y: level.worldH * 0.8 },
+      rainHeld: false,
+    };
+    runSteps(sim, dry, overLand, 200);
+    expect(dry.cloud.water).toBe(0);
+  });
 });
 
 describe('sim: raining onto a field', () => {

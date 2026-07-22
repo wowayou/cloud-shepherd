@@ -88,7 +88,18 @@ export function bootGame(canvas: HTMLCanvasElement, uiRoot: HTMLElement): () => 
     worldH = WORLD_H;
 
     gameState.bounds.w = newW;
-    gameState.sea.x1 = currentLevelDef.seaWidthN * newW;
+    // Rebuild every water body from the level def (supports multi-sea layouts).
+    // GROUND_Y_FRAC is 0.82 in sim/index.ts — keep in lockstep.
+    const groundY = WORLD_H * 0.82;
+    if (currentLevelDef.seas && currentLevelDef.seas.length > 0) {
+      gameState.seas = currentLevelDef.seas.map((s) => ({
+        x0: Math.min(s.normX0, s.normX1) * newW,
+        x1: Math.max(s.normX0, s.normX1) * newW,
+        y: groundY,
+      }));
+    } else {
+      gameState.seas = [{ x0: 0, x1: currentLevelDef.seaWidthN * newW, y: groundY }];
+    }
     currentLevelDef.fields.forEach((fd, i) => {
       const f = gameState!.fields[i];
       if (f) {

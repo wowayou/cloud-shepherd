@@ -138,7 +138,12 @@ export interface GameState {
   birds: Bird[];
   coldFronts: ColdFront[];
   sun: SunState;
-  sea: SeaRegion;
+  /**
+   * One or more evaporative water bodies. Legacy levels built with
+   * `LevelDef.seaWidthN` become a single left-edge sea; newer levels can place
+   * seas anywhere (centre lake, dual coast, …) via `LevelDef.seas`.
+   */
+  seas: SeaRegion[];
   particles: RainParticle[];
   stats: SimStats;
   bounds: { w: number; h: number };
@@ -269,7 +274,19 @@ export interface LevelDef {
   thermals?: { normX: number; width: number; height: number; lift: number }[];
   birds?: { normY: number; speed: number; radius: number; startN: number }[];
   coldFronts?: { normX: number; normY: number; radius: number; speed: number }[];
+  /**
+   * Legacy single-sea width as a fraction of worldW, always starting at x=0.
+   * Used when `seas` is omitted. Kept so every pre-round-10 level stays a
+   * one-line def; new templates that break "sea on the left" use `seas`.
+   */
   seaWidthN: number;
+  /**
+   * Optional multi-sea layout. Each entry is a horizontal band at the ground
+   * line (`normX0`..`normX1`, fractions of worldW). When present, `seaWidthN`
+   * is ignored for geometry (still required for the "has a water source"
+   * sanity check — set it to the total fraction of world covered by water).
+   */
+  seas?: { normX0: number; normX1: number }[];
   tiers: Record<Tier, TierParams>;
   factCardKey?: string;
   tutorial?: TutorialStep[];

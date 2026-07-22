@@ -154,6 +154,31 @@ energy surviving a highpass at ~500Hz to approximate a small speaker), not by
 reasoning about gain multipliers. An OfflineAudioContext harness in headless
 Chromium takes minutes to write and catches this class every time.
 
+## Layout / multi-source water
+
+**2026-07-23 — Prefer `things[]` + legacy shorthand over `thing` + optional
+`otherThings[]`.** When the game grew a second water body, the temptation was
+to keep `GameState.sea` for the "main" ocean and add `ponds?: SeaRegion[]`.
+That forces every absorb/render/resize/autopilot site to special-case two
+paths forever, and the "main" vs "pond" distinction is fake — the physics is
+identical (infinite horizontal water band). The cheaper long-term shape is
+`seas: SeaRegion[]` everywhere, with the old `seaWidthN` field kept as a
+*level-authoring shorthand* that expands to `[{x0:0, x1:…}]` at init. All
+16 existing levels needed zero edits; multi-sea is opt-in per level.
+
+Transferable: when a singular becomes plural, migrate the *runtime* to the
+array form and keep the singular as a data convenience, not as a parallel
+live path. Dual live paths are where the next bug will hide.
+
+**2026-07-23 — Autopilots must pick nearest-of, not first-of.** After
+multi-sea landed, the calibration autopilot still drank from `seas[0]`. On
+a dual-coast level that meant every refill flew to the left shore even when
+the target field sat next to the right one — ideal times ballooned and the
+level looked "broken" in the rig while being fine for a human. Fixed by
+anchoring drink target on the nearest sea midpoint to the current field.
+Same class of bug as the round-8 drink/water hysteresis: the tool's own
+decision rule, not the game.
+
 ## Design scope / ceiling-raise plans
 
 **2026-07-22 — A 12-week ceiling-raise doc is a diagnosis, not a build order.**

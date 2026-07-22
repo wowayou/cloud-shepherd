@@ -344,4 +344,59 @@ export const LEVELS: LevelDef[] = [
       hard: hard({ windBaseX: 34, gustAmp: 24, gustPeriodMs: 8000, cloudMaxWater: 62, starThresholds: stars(26000, 40000, 30, 62) }),
     },
   },
+  // —— Round 10: layout templates that break "sea always on the left" ——
+  // Both levels keep the simplest path intact (drink → rain → bloom, no new
+  // gesture). The only new idea is *where* the water lives, which a child
+  // reads from the picture without a caption.
+  {
+    id: 16,
+    name: '中间的湖',
+    // seaWidthN is the total water-cover fraction for the "has water" sanity
+    // check; geometry comes from `seas` (a centred lake, not a left strip).
+    seaWidthN: 0.28,
+    seas: [{ normX0: 0.36, normX1: 0.64 }],
+    // Four fields around the lake — route is radial, not left→right. Each
+    // field is a short hop from water so the level teaches "water is in the
+    // middle" without demanding multi-trip economy.
+    fields: [
+      { normX: 0.18, normY: 0.84, targetMin: 38, targetMax: 100, radius: 0.06 },
+      { normX: 0.82, normY: 0.84, targetMin: 38, targetMax: 100, radius: 0.06 },
+      { normX: 0.28, normY: 0.78, targetMin: 36, targetMax: 95, radius: 0.055 },
+      { normX: 0.72, normY: 0.78, targetMin: 36, targetMax: 95, radius: 0.055 },
+    ],
+    // Ideal ~ two full tank trips on hard (cloud 90 vs ~148 need). Gates leave
+    // room for a first-time radial-route explorer.
+    tiers: {
+      easy: easy({ cloudMaxWater: 160 }),
+      hard: hard({ starThresholds: stars(18000, 28000, 20, 48) }),
+    },
+    introKey: 'lake',
+    factCardKey: 'cycle',
+  },
+  {
+    id: 17,
+    name: '两边都是海',
+    seaWidthN: 0.36,
+    // Dual coast: drink from either shore. Fields sit in the land between,
+    // so the skill is "pick the nearer sea" — a pure spatial decision that
+    // the nearest-sea autopilot already models.
+    seas: [
+      { normX0: 0.0, normX1: 0.18 },
+      { normX0: 0.82, normX1: 1.0 },
+    ],
+    fields: [
+      { normX: 0.34, normY: 0.84, targetMin: 42, targetMax: 110, radius: 0.06 },
+      { normX: 0.5, normY: 0.82, targetMin: 40, targetMax: 105, radius: 0.06 },
+      { normX: 0.66, normY: 0.84, targetMin: 42, targetMax: 110, radius: 0.06 },
+    ],
+    // A light thermal in open sky above the middle field — optional spice,
+    // clear of rain footprints so it can't soft-lock a field.
+    thermals: [{ normX: 0.5, width: 0.08, height: 0.28, lift: 45 }],
+    tiers: {
+      easy: easy(),
+      hard: hard({ starThresholds: stars(16000, 25000, 18, 44) }),
+    },
+    introKey: 'twoSeas',
+    factCardKey: 'evaporation',
+  },
 ];

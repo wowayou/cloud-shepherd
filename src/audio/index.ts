@@ -6,6 +6,9 @@ import type { AudioModule, SimEvent, UiSound } from '../types.ts';
 const THROTTLE_MS: Partial<Record<SimEvent['type'], number>> = {
   evaporate: 190,
   mountainLeak: 260,
+  // Runoff fires every raining frame over a slope; keep the trickle as a soft
+  // occasional "plink" rather than a machine-gun of notes.
+  runoff: 280,
 };
 
 // A small major-pentatonic-ish note set (Hz) reused across every event so
@@ -397,6 +400,20 @@ export function createAudio(): AudioModule {
         // Filtered noise, not a tone — a literal airy "hiss/pfft" that is
         // timbrally unmistakable from the tonal "glug" of evaporate.
         noiseBurst(3400, { type: 'bandpass', q: 1.4, gain: 0.14, attack: 0.004, decay: 0.16 });
+        break;
+      case 'runoff':
+        // Soft descending "trickle" — lower and wetter than mountainLeak's hiss,
+        // so rain-on-slope reads as water moving, not as the cloud scraping rock.
+        tone(420, {
+          type: 'sine',
+          gain: 0.1,
+          freqEnd: 280,
+          glideTime: 0.08,
+          attack: 0.008,
+          decay: 0.12,
+          release: 0.06,
+        });
+        noiseBurst(900, { type: 'lowpass', q: 0.7, gain: 0.06, attack: 0.01, decay: 0.14 });
         break;
       case 'birdHit':
         // A startled little squawk: a fast down-glide over a noise chirp. Kept

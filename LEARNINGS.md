@@ -154,6 +154,30 @@ energy surviving a highpass at ~500Hz to approximate a small speaker), not by
 reasoning about gain multipliers. An OfflineAudioContext harness in headless
 Chromium takes minutes to write and catches this class every time.
 
+## Hydrology (light)
+
+**2026-07-23 — Runoff without a height field.** Full Cellular-Automata or
+particle-slope hydrology would teach more of the water cycle but multiplies
+tuning surface and soft-lock modes. The cheaper lesson that still *looks*
+like runoff: when rain lands on a mountain span with no field under the
+cloud, queue a delayed packet to the nearest downhill field and draw a
+trickle while it travels. 55% capture / 1.8s delay / 0.45·worldW range were
+chosen so the child can see the stream and still feel "I made that field wet
+by raining on the mountain", without making mountain levels auto-solve via
+passive soak. The remaining 45% stays waste so "aim at the field" is still
+the primary skill.
+
+Transferable: for educational sims, a *re-routing of an existing waste path*
+often teaches the concept better than a new subsystem, and keeps never-fail
+invariants intact (no new way to soft-lock).
+
+**2026-07-23 — Form as spring multiplier, not a second force.** Wanting
+"full clouds feel heavy" without reopening the wind-axis bug (round 1's
+PULL_ACCEL retune silently killed wind) means: multiply only the pointer
+spring, leave the settle-point wind/thermal axis alone. Same pattern as
+defining wind in displacement units — express the tunable in the units the
+player feels, and don't let two systems multiply into one silent rescale.
+
 ## Layout / multi-source water
 
 **2026-07-23 — Prefer `things[]` + legacy shorthand over `thing` + optional

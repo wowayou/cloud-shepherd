@@ -15,6 +15,8 @@ import type {
   TierParams,
 } from '../types.ts';
 
+// Mountain is used by findMountainUnder / findRunoffDestination helpers.
+
 // ————————————————————————————————————————————————————————————
 // Tunables (all in "world units" — the fixed 720-tall virtual space,
 // scaled by worldH so behavior is consistent across device aspect ratios)
@@ -105,8 +107,28 @@ const MOUNTAIN_LEAK_RATE = 14; // water/sec lost while clipping a mountain
 // the mountain. This makes the leak begin as that belly grazes the peak, so the
 // penalty matches what the child sees and rewards clearing with real headroom.
 const MOUNTAIN_SAFE_MARGIN_FRAC = 0.03;
+// Rain that lands on a mountain slope (not on a field, not on the sea) used
+// to become waterWasted instantly. Round 11: a fraction of it runs downhill
+// and arrives at the nearest downhill field after a short delay — the water-
+// cycle lesson "runoff" without a Cellular-Automata hydrology module.
+// Deliberate simplifications (honest, dated): no real height field, no
+// branching streams, no snow — just "mountain got wet → nearby lower field
+// gets wet a moment later". Seas stay infinite sources; runoff never creates
+// new water, only re-routes what would have been waste.
+const RUNOFF_CAPTURE_FRAC = 0.55; // rest still wasted (soaks into rock / evaporates)
+const RUNOFF_DELAY_MS = 1800; // ~1.8s — long enough to see a trickle, short enough to feel causal
+const RUNOFF_MAX_DIST_FRAC = 0.45; // field must be within this ·worldW of the hit to catch runoff
 const OVERWATER_DRAIN_RATE = 7; // water/sec a flooded field drains back toward its cap
 const BLOOM_EASE_PER_SEC = 2.4; // bloom01 animation speed once a field locks in
+
+// Cloud morphology (no split). High altitude → lighter "cirrus" feel: slightly
+// faster pointer follow + thinner silhouette in Render. Near-full water →
+// heavier "cumulus" feel: slightly slower follow + fatter silhouette. The
+// existing massFactor already handles wind/thermal; this only retunes the
+// pointer spring so "full clouds are sluggish" is legible while dragging.
+const CIRRUS_Y_FRAC = 0.28; // above this (small y) counts as high
+const FORM_PULL_LIGHT = 1.12; // high+empty spring multiplier
+const FORM_PULL_HEAVY = 0.78; // full spring multiplier
 
 // Particle spawn cadence at pressure=0 (drizzle). Higher pressure shortens
 // the interval so a downpour looks denser without changing the rate formula.
@@ -226,6 +248,7 @@ function buildInitialState(level: LevelRuntime): GameState {
     coldFronts,
     sun: { dayPhase: DAY_START_PHASE, intensity: sunIntensityAt(DAY_START_PHASE) },
     seas: buildSeas(level, worldW, groundY),
+    runoff: [],
     particles: [],
     stats: { elapsedMs: 0, waterEvaporated: 0, waterRained: 0, waterWasted: 0 },
     bounds: { w: worldW, h: worldH },
@@ -250,6 +273,51 @@ function overAnySea(seas: SeaRegion[], x: number): SeaRegion | undefined {
     if (x >= s.x0 && x <= s.x1) return s;
   }
   return undefined;
+}
+
+/** Mountain whose horizontal span contains x, with its index for runoff tags. */
+function findMountainUnder(
+  mountains: Mountain[],
+  x: number,
+): { id: number; m: Mountain } | undefined {
+  for (let i = 0; i < mountains.length; i++) {
+    const m = mountains[i];
+    const half = m.width / 2;
+    if (x >= m.pos.x - half && x <= m.pos.x + half) return { id: i, m };
+  }
+  return undefined;
+}
+
+/**
+ * Pick the nearest non-bloom field downhill of a mountain hit. "Downhill" is
+ * simplified to "lower on screen (larger y) OR further from the peak in x" —
+ * good enough to teach runoff without a height field. Returns -1 if nothing
+ * is in range (packet will waste on delivery).
+ */
+function findRunoffDestination(
+  fields: Field[],
+  mountain: Mountain,
+  hitX: number,
+  worldW: number,
+): number {
+  const maxDist = worldW * RUNOFF_MAX_DIST_FRAC;
+  let bestId = -1;
+  let bestScore = Infinity;
+  for (const f of fields) {
+    if (f.state === 'bloom') continue;
+    const dx = f.pos.x - hitX;
+    const dist = Math.abs(dx);
+    if (dist > maxDist) continue;
+    // Prefer fields that are lower (larger y) than the mountain base, and
+    // closer in x. Score is distance with a small bonus for being downhill.
+    const downhill = f.pos.y >= mountain.pos.y - mountain.height * 0.15 ? 0 : 40;
+    const score = dist + downhill;
+    if (score < bestScore) {
+      bestScore = score;
+      bestId = f.id;
+    }
+  }
+  return bestId;
 }
 
 function findFieldUnderCloud(fields: Field[], pos: { x: number; y: number }, worldH: number): Field | undefined {
@@ -370,13 +438,23 @@ export function createSim(): SimModule {
     // pointer pull + wind + damping. Wind and thermals shift the point the
     // cloud settles at rather than adding force, so their strength is
     // independent of PULL_ACCEL/VEL_DAMPING (see the constants above).
+    // Form pull: high empty clouds snap a bit faster; full clouds feel heavier
+    // under the finger. Multiplies only the pointer spring, not wind settle,
+    // so calibrated wind displacements stay honest.
+    const wet01 = state.cloud.maxWater > 0 ? state.cloud.water / state.cloud.maxWater : 0;
+    const high01 = Math.max(0, Math.min(1, (CIRRUS_Y_FRAC * worldH - state.cloud.pos.y) / (CIRRUS_Y_FRAC * worldH)));
+    const formPull =
+      FORM_PULL_HEAVY +
+      (1 - FORM_PULL_HEAVY) * (1 - wet01) +
+      (FORM_PULL_LIGHT - 1) * high01 * (1 - wet01 * 0.7);
+    const pull = PULL_ACCEL * formPull;
     let ax = 0;
     let ay = 0;
     if (intent.pointerActive) {
       const targetX = intent.pointer.x + windX;
       const targetY = intent.pointer.y - worldH * POINTER_OFFSET_Y_FRAC - liftY;
-      ax += (targetX - state.cloud.pos.x) * PULL_ACCEL;
-      ay += (targetY - state.cloud.pos.y) * PULL_ACCEL;
+      ax += (targetX - state.cloud.pos.x) * pull;
+      ay += (targetY - state.cloud.pos.y) * pull;
     } else {
       ax += windX * WIND_FREE_DRIFT_PER_UNIT;
       ay += -liftY * WIND_FREE_DRIFT_PER_UNIT;
@@ -509,7 +587,33 @@ export function createSim(): SimModule {
       if (field) {
         field.moisture += amt;
       } else {
-        state.stats.waterWasted += amt;
+        // Not over a field. If we're over a mountain slope, a share of the rain
+        // becomes delayed runoff toward the nearest downhill field instead of
+        // pure waste — the water-cycle "runoff" lesson, taught by the sim.
+        const slope = findMountainUnder(state.mountains, state.cloud.pos.x);
+        if (slope) {
+          const captured = amt * RUNOFF_CAPTURE_FRAC;
+          const wastedNow = amt - captured;
+          if (wastedNow > 0) state.stats.waterWasted += wastedNow;
+          if (captured > 0.001) {
+            const dest = findRunoffDestination(
+              state.fields,
+              state.mountains[slope.id],
+              state.cloud.pos.x,
+              worldW,
+            );
+            state.runoff.push({
+              mountainId: slope.id,
+              fieldId: dest,
+              amount: captured,
+              delayMs: RUNOFF_DELAY_MS,
+              hitX: state.cloud.pos.x,
+            });
+            events.push({ type: 'runoff', amount: captured, mountainId: slope.id });
+          }
+        } else {
+          state.stats.waterWasted += amt;
+        }
       }
 
       // Density tracks pressure: drizzle spawns sparsely, downpour fills the
@@ -532,6 +636,30 @@ export function createSim(): SimModule {
       }
     } else {
       rainAccumMs = 0;
+    }
+
+    // Deliver delayed runoff packets. Water that finds no field (fieldId -1)
+    // becomes waste at delivery time — it reached the sea / soaked away.
+    if (state.runoff.length > 0) {
+      const next: typeof state.runoff = [];
+      for (const p of state.runoff) {
+        p.delayMs -= dtMs;
+        if (p.delayMs > 0) {
+          next.push(p);
+          continue;
+        }
+        if (p.fieldId >= 0) {
+          const f = state.fields[p.fieldId];
+          if (f && f.state !== 'bloom') {
+            f.moisture += p.amount;
+          } else {
+            state.stats.waterWasted += p.amount;
+          }
+        } else {
+          state.stats.waterWasted += p.amount;
+        }
+      }
+      state.runoff = next;
     }
 
     // particles

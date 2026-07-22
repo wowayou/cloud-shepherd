@@ -71,6 +71,69 @@ describe('sim: absorbing over the sea', () => {
     expect(state.cloud.water).toBeLessThanOrEqual(level.tiers.easy.cloudMaxWater);
   });
 
+  it('routes rain on a mountain slope into delayed runoff toward a downhill field', () => {
+    // Round 11 light hydrology: rain over a mountain (no field under the cloud)
+    // must not all become waterWasted — a share is queued and arrives later.
+    const sim = createSim();
+    const level = makeLevel({
+      mountains: [{ normX: 0.5, normY: 0.82, width: 0.2, height: 0.25 }],
+      fields: [{ normX: 0.72, normY: 0.84, targetMin: 40, targetMax: 100, radius: 0.06 }],
+    });
+    const state = sim.init(level);
+    // Full cloud parked over the mountain peak (horizontally inside mountain span,
+    // well above the field so findFieldUnderCloud returns nothing).
+    state.cloud.pos = { x: level.worldW * 0.5, y: level.worldH * 0.4 };
+    state.cloud.water = 80;
+
+    const rainOnSlope: InputIntent = {
+      pointerActive: true,
+      pointer: { ...state.cloud.pos },
+      rainHeld: true,
+      rainPressure: (1.0 - 0.3) / 1.2,
+    };
+    const events = runSteps(sim, state, rainOnSlope, 30);
+    expect(events.some((e) => e.type === 'runoff')).toBe(true);
+    expect(state.runoff.length).toBeGreaterThan(0);
+    const queued = state.runoff.reduce((s, p) => s + p.amount, 0);
+    expect(queued).toBeGreaterThan(0);
+    // Field not yet wet — delay hasn't elapsed (30 frames ≈ 0.5s < 1.8s).
+    expect(state.fields[0].moisture).toBe(0);
+
+    // Advance past the delay with no more rain; packets should deliver.
+    const idle: InputIntent = { pointerActive: false, pointer: { x: 0, y: 0 }, rainHeld: false };
+    runSteps(sim, state, idle, 150); // ~2.5s
+    expect(state.runoff.length).toBe(0);
+    expect(state.fields[0].moisture).toBeGreaterThan(0);
+  });
+
+  it('slows the pointer spring when the cloud is full (heavy form)', () => {
+    // Full cloud should lag the pointer more than an empty one over the same
+    // short burst — the "heavy cumulus" feel without a form enum.
+    const sim = createSim();
+    const level = makeLevel();
+
+    function travelAfter(water: number): number {
+      const state = sim.init(level);
+      state.cloud.water = water;
+      state.cloud.pos = { x: level.worldW * 0.3, y: level.worldH * 0.5 };
+      state.cloud.vel = { x: 0, y: 0 };
+      const intent: InputIntent = {
+        pointerActive: true,
+        pointer: { x: level.worldW * 0.7, y: level.worldH * 0.5 },
+        rainHeld: false,
+      };
+      runSteps(sim, state, intent, 20); // ~0.33s
+      return state.cloud.pos.x;
+    }
+
+    const emptyX = travelAfter(0);
+    const fullX = travelAfter(level.tiers.easy.cloudMaxWater);
+    // Both move right of start (0.3·w), but the empty cloud covers more ground.
+    expect(emptyX).toBeGreaterThan(level.worldW * 0.3);
+    expect(fullX).toBeGreaterThan(level.worldW * 0.3);
+    expect(emptyX).toBeGreaterThan(fullX);
+  });
+
   it('absorbs from a non-left sea defined via LevelDef.seas (multi-sea layouts)', () => {
     // Round 10: water bodies can sit anywhere. A centre lake must drink the
     // same way the classic left-edge sea does — same rate, same chill gate.

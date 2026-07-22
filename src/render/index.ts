@@ -298,6 +298,57 @@ function drawTinyTree(ctx: CanvasRenderingContext2D, x: number, y: number, h: nu
   ctx.fill();
 }
 
+/**
+ * Short blue trickle from a runoff hit toward its destination field. Pure
+ * visual — progress is (1 - delayMs/RUNOFF_DELAY_MS), so it finishes as the
+ * packet delivers. Teaches "rain on the mountain → water runs downhill"
+ * without a caption.
+ */
+function drawRunoff(ctx: CanvasRenderingContext2D, state: GameState): void {
+  if (state.runoff.length === 0) return;
+  const delayTotal = 1800; // must match RUNOFF_DELAY_MS in sim/index.ts
+  ctx.save();
+  ctx.lineCap = 'round';
+  for (const p of state.runoff) {
+    const m = state.mountains[p.mountainId];
+    if (!m) continue;
+    const progress = Math.max(0, Math.min(1, 1 - p.delayMs / delayTotal));
+    let destX = p.hitX;
+    let destY = m.pos.y;
+    if (p.fieldId >= 0) {
+      const f = state.fields[p.fieldId];
+      if (f) {
+        destX = f.pos.x;
+        destY = f.pos.y;
+      }
+    } else {
+      // draining toward the nearest sea edge
+      const sea = state.seas[0];
+      if (sea) {
+        destX = Math.abs(p.hitX - sea.x0) < Math.abs(p.hitX - sea.x1) ? sea.x0 : sea.x1;
+        destY = sea.y;
+      }
+    }
+    const x0 = p.hitX;
+    const y0 = m.pos.y - m.height * 0.55;
+    const x1 = x0 + (destX - x0) * progress;
+    const y1 = y0 + (destY - y0) * progress;
+    ctx.strokeStyle = `rgba(80, 140, 200, ${(0.55 + 0.35 * (1 - progress)).toFixed(3)})`;
+    ctx.lineWidth = Math.max(2, state.bounds.h * 0.006);
+    ctx.beginPath();
+    ctx.moveTo(x0, y0);
+    // gentle downhill curve
+    ctx.quadraticCurveTo((x0 + x1) / 2, Math.max(y0, y1) + state.bounds.h * 0.04, x1, y1);
+    ctx.stroke();
+    // leading droplet
+    ctx.fillStyle = 'rgba(120, 180, 230, 0.85)';
+    ctx.beginPath();
+    ctx.arc(x1, y1, state.bounds.h * 0.008, 0, Math.PI * 2);
+    ctx.fill();
+  }
+  ctx.restore();
+}
+
 function drawMountain(ctx: CanvasRenderingContext2D, m: Mountain): void {
   const left = m.pos.x - m.width / 2;
   const right = m.pos.x + m.width / 2;
@@ -880,11 +931,20 @@ function drawCloud(ctx: CanvasRenderingContext2D, state: GameState): void {
   const { cloud, bounds } = state;
   const wetness = cloud.maxWater > 0 ? cloud.water / cloud.maxWater : 0;
   const t = state.stats.elapsedMs / 1000;
-  const baseR = bounds.h * (0.052 + 0.034 * wetness);
+  // Form: high empty clouds stretch flatter (cirrus); full clouds puff larger
+  // (cumulus). Derived purely from water + altitude — no new Cloud field, so
+  // Render stays a pure function of GameState and the sim doesn't need a
+  // "form" enum that would have to stay in sync with thresholds.
+  const high01 = Math.max(0, Math.min(1, (0.28 * bounds.h - cloud.pos.y) / (0.28 * bounds.h)));
+  const cirrus = high01 * (1 - wetness * 0.85);
+  const baseR = bounds.h * (0.052 + 0.034 * wetness) * (1 + 0.12 * wetness);
   const bob = Math.sin(t * 1.6) * bounds.h * 0.006;
   const breathe = 1 + Math.sin(t * 1.3) * 0.02;
   const cx = cloud.pos.x;
   const cy = cloud.pos.y + bob;
+  // Flatten on Y when high+empty; keep X plump so the face still reads.
+  const scaleY = 1 - 0.28 * cirrus;
+  const scaleX = 1 + 0.12 * cirrus;
   const r = baseR * breathe;
   const mood = cloudMood(state);
   const pressure = cloud.rainPressure;
@@ -906,6 +966,9 @@ function drawCloud(ctx: CanvasRenderingContext2D, state: GameState): void {
   }
 
   ctx.save();
+  ctx.translate(cx, cy);
+  ctx.scale(scaleX, scaleY);
+  ctx.translate(-cx, -cy);
   ctx.shadowColor = 'rgba(45,65,90,0.3)';
   ctx.shadowBlur = r * 0.4;
   ctx.shadowOffsetY = r * 0.14;
@@ -1254,6 +1317,7 @@ export function createRender(): RenderModule {
     drawSky(ctx, w, h, state.stats.elapsedMs, state.sun.intensity);
     drawGroundAndSea(ctx, state, state.stats.elapsedMs);
     for (const m of state.mountains) drawMountain(ctx, m);
+    drawRunoff(ctx, state);
     const windStrength = Math.max(-1, Math.min(1, (state.wind.baseX + state.wind.gustX) / 60));
     for (const f of state.fields) drawField(ctx, f, state.stats.elapsedMs, windStrength);
     // Rainbow sits behind obstacles/cloud but in front of the land — a sky

@@ -128,6 +128,23 @@ export interface SimStats {
 
 export type GamePhase = 'playing' | 'complete';
 
+/**
+ * Delayed mountain-slope runoff. Pure sim data — Render may draw a trickle
+ * from mountain → field while `delayMs` counts down. Deterministic: same
+ * rain-on-slope sequence produces the same queue.
+ */
+export interface RunoffPacket {
+  /** Index into GameState.mountains. */
+  mountainId: number;
+  /** Field that will receive the water, or -1 if it drains to sea (wasted). */
+  fieldId: number;
+  amount: number;
+  /** Milliseconds remaining before delivery. */
+  delayMs: number;
+  /** World-space x where the rain hit the slope (for a short trickle draw). */
+  hitX: number;
+}
+
 export interface GameState {
   phase: GamePhase;
   cloud: Cloud;
@@ -144,6 +161,8 @@ export interface GameState {
    * seas anywhere (centre lake, dual coast, …) via `LevelDef.seas`.
    */
   seas: SeaRegion[];
+  /** In-flight mountain-slope runoff packets (round 11 light hydrology). */
+  runoff: RunoffPacket[];
   particles: RainParticle[];
   stats: SimStats;
   bounds: { w: number; h: number };
@@ -188,6 +207,13 @@ export type SimEvent =
   | { type: 'fieldBloom'; fieldId: number }
   | { type: 'fieldOverwater'; fieldId: number }
   | { type: 'mountainLeak'; amount: number }
+  /**
+   * Rain landed on a mountain slope and is now running downhill toward a field
+   * (or the sea). `amount` is the water queued for delayed delivery — not yet
+   * on any field. Visual/audio cue for "runoff", the missing quarter of the
+   * water-cycle lesson that used to just become waterWasted.
+   */
+  | { type: 'runoff'; amount: number; mountainId: number }
   | { type: 'birdHit'; amount: number }
   | { type: 'chillEnter' }
   | { type: 'chillExit' }

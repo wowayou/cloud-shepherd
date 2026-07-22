@@ -113,6 +113,7 @@ export function bootGame(canvas: HTMLCanvasElement, uiRoot: HTMLElement): () => 
     });
     gameState.cloud.pos.x = (gameState.cloud.pos.x / oldW) * newW;
     gameState.particles = []; // ephemeral; stale positions would rain in the wrong spot
+    gameState.runoff = []; // hitX was in old world coords; drop in-flight packets
   }
 
   /** Idempotent: stops the looping rain sound if it is playing. The sim also

@@ -111,13 +111,16 @@ const STYLES = `
   .cs-goal-part.miss { color:#c2683a; }
   .cs-star.filled { color:#ffd166; text-shadow:0 2px 0 rgba(196,132,20,0.4); animation:cs-star-pop 0.4s ease backwards; }
   .cs-star.empty { color:rgba(32,52,74,0.2); }
-  .cs-fact-card { background:linear-gradient(165deg, #fff7df, #ffedb6); border-radius:16px;
-    padding:16px 22px; cursor:pointer; text-align:center; max-width:340px; pointer-events:auto;
-    box-shadow:0 4px 10px rgba(32,52,74,0.14); transition:background 0.18s ease; touch-action:manipulation; }
-  .cs-fact-card:hover { background:linear-gradient(165deg, #fff3cf, #ffe8a6); }
-  .cs-fact-card:has(.cs-fact-prompt) { animation:cs-fact-glow 1.8s ease-in-out infinite; }
-  .cs-fact-prompt { color:#9a6a1e; font-weight:700; font-size:15px; line-height:1.4; }
-  .cs-fact-text { color:#5a4416; font-size:16px; line-height:1.6; }
+  /* Fact card is a small optional footnote after the actions (round 16), not a glowing billboard. */
+  .cs-fact-card { background:rgba(255,247,223,0.75); border-radius:12px;
+    padding:10px 14px; cursor:pointer; text-align:center; max-width:280px; pointer-events:auto;
+    box-shadow:none; border:1px solid rgba(154,106,30,0.2); transition:background 0.18s ease; touch-action:manipulation;
+    margin-top:8px; opacity:0.9; }
+  .cs-fact-card:hover { background:rgba(255,243,207,0.95); }
+  .cs-fact-prompt { color:#9a6a1e; font-weight:600; font-size:13px; line-height:1.35; }
+  .cs-fact-text { color:#5a4416; font-size:14px; line-height:1.5; }
+  .cs-rest-hint { color:#5a7a6a; font-size:13px; margin-top:6px; opacity:0.85; }
+  .cs-energy-pill { font-size:13px; }
   .cs-cycle { gap:2px; font-size:15px; }
   .cs-cycle-arrow { opacity:0.35; font-size:12px; color:#16324f; }
   .cs-cycle-stage { opacity:0.3; filter:grayscale(0.6); transition:opacity 0.25s ease, transform 0.25s ease, filter 0.25s ease;
@@ -173,6 +176,9 @@ export function createUi(): UiModule {
   let activeThresholds: { timeMs: [number, number]; waste: [number, number] } | undefined;
   let resultFactEl: HTMLElement;
   let resultFactPromptEl: HTMLElement; // the "tap to flip" hint shown before the fact is revealed
+  let resultRestHintEl: HTMLElement;
+  let energyPillEl: HTMLElement;
+  let energyEmptyEl: HTMLElement;
 
   function injectStyles(): void {
     if (document.getElementById(STYLE_ID)) return;
@@ -277,6 +283,12 @@ export function createUi(): UiModule {
   function buildLevelSelectScreen(): HTMLElement {
     const screen = el('div', { className: 'cs-screen' });
     screen.append(el('h1', { className: 'cs-title', text: STRINGS.levelSelect.title }));
+    energyPillEl = el('div', { className: 'cs-pill cs-energy-pill', text: '' });
+    energyPillEl.title = STRINGS.energy.cost;
+    screen.append(energyPillEl);
+    energyEmptyEl = el('div', { className: 'cs-rest-hint', text: STRINGS.energy.empty });
+    energyEmptyEl.style.display = 'none';
+    screen.append(energyEmptyEl);
     levelGridEl = el('div', { className: 'cs-grid' });
     screen.append(levelGridEl);
     const switchBtn = el('button', { className: 'cs-btn', text: STRINGS.menu.switchProfile, onClick: () => setScene('profile') });
@@ -446,11 +458,20 @@ export function createUi(): UiModule {
     resultStarWhyEl = el('div', { className: 'cs-star-why' });
     card.append(resultStarWhyEl);
 
-    // Fact card with a prompt-then-flip reveal: shows the "tap to look" prompt
-    // first, and only flips to the full fact text on tap. The classic "did you
-    // know?" moment lands better when a child actively opens it than when it's
-    // dumped under the stars unchecked. Touch devices get the same gesture — a
-    // single tap — via the click handler.
+    // Actions first (round 16): win → next level is the primary path. The fact
+    // card is a quiet optional footnote *below* the buttons — no glow, no
+    // demand to read before continuing. Knowledge lives in the eco-dex too.
+    const row = el('div', { className: 'cs-row' });
+    row.append(
+      el('button', { className: 'cs-btn primary', text: STRINGS.result.nextLevel, onClick: () => callbacks.onNext() }),
+      el('button', { className: 'cs-btn', text: STRINGS.result.backToLevels, onClick: () => callbacks.onQuit() }),
+    );
+    card.append(row);
+
+    resultRestHintEl = el('div', { className: 'cs-rest-hint', text: '' });
+    resultRestHintEl.style.display = 'none';
+    card.append(resultRestHintEl);
+
     resultFactEl = el('div', { className: 'cs-fact-card' });
     resultFactEl.style.display = 'none';
     resultFactPromptEl = el('div', { className: 'cs-fact-prompt', text: STRINGS.result.tapToFlip });
@@ -458,12 +479,6 @@ export function createUi(): UiModule {
     resultFactEl.append(resultFactPromptEl);
     card.append(resultFactEl);
 
-    const row = el('div', { className: 'cs-row' });
-    row.append(
-      el('button', { className: 'cs-btn primary', text: STRINGS.result.nextLevel, onClick: () => callbacks.onNext() }),
-      el('button', { className: 'cs-btn', text: STRINGS.result.backToLevels, onClick: () => callbacks.onQuit() }),
-    );
-    card.append(row);
     screen.append(card);
     return screen;
   }
@@ -471,7 +486,8 @@ export function createUi(): UiModule {
   /** Show the prompt state (pre-flip) with the knowThis headline above the
    *  tap hint. Called from showResult() before the card is interacted with. */
   function resetFactCard(): void {
-    resultFactPromptEl.textContent = `${STRINGS.result.knowThis} ${STRINGS.result.tapToFlip}`;
+    // Quiet footnote copy — no longer a glowing "你知道吗" billboard.
+    resultFactPromptEl.textContent = `${STRINGS.result.knowThis} · ${STRINGS.result.tapToFlip}`;
     resultFactPromptEl.className = 'cs-fact-prompt';
   }
 
@@ -503,9 +519,16 @@ export function createUi(): UiModule {
     } else if (scene === 'menu') {
       currentProfileId = (data as { profile: Profile } | undefined)?.profile?.id ?? currentProfileId;
     } else if (scene === 'levelselect') {
-      const d = data as { profile: Profile; levels: LevelDef[] };
+      const d = data as {
+        profile: Profile;
+        levels: LevelDef[];
+        energyLabel?: string;
+        energyEmpty?: boolean;
+      };
       currentProfileId = d.profile.id;
       renderLevelSelect(d.profile, d.levels);
+      if (energyPillEl) energyPillEl.textContent = d.energyLabel ?? '';
+      if (energyEmptyEl) energyEmptyEl.style.display = d.energyEmpty ? 'block' : 'none';
     } else if (scene === 'ecodex') {
       const d = data as { profile: Profile };
       currentProfileId = d.profile.id;
@@ -638,7 +661,7 @@ export function createUi(): UiModule {
     return STRINGS.tutorial.holdToRain;
   }
 
-  function showResult(stars: number, factCardText?: string, breakdown?: StarBreakdown): void {
+  function showResult(stars: number, factCardText?: string, breakdown?: StarBreakdown, restHint?: boolean): void {
     resultStarsEl.innerHTML = '';
     for (let i = 0; i < 3; i++) {
       const filled = i < stars;
@@ -648,9 +671,19 @@ export function createUi(): UiModule {
     }
 
     renderStarWhy(stars, breakdown);
+
+    // Gentle rest nudge after a long session — never a hard lock.
+    if (resultRestHintEl) {
+      if (restHint) {
+        resultRestHintEl.textContent = STRINGS.result.restHint;
+        resultRestHintEl.style.display = 'block';
+      } else {
+        resultRestHintEl.style.display = 'none';
+      }
+    }
+
     if (factCardText) {
-      // Stash the final text on the prompt element and start in the pre-flip
-      // prompt state; the click handler on the card flips to it.
+      // Optional footnote only — actions (next/back) are already above this.
       resultFactPromptEl.dataset.factText = factCardText;
       resetFactCard();
       resultFactEl.style.display = 'block';

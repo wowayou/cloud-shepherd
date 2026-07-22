@@ -11,7 +11,7 @@ progress to the next level. It has been manually verified end-to-end in a
 real Chromium browser (not just `npm test`/typecheck — see "the
 pointer-events bug" below for why that distinction matters).
 
-Rounds 1–15 are **done** — the table below is complete; there is no
+Rounds 1–16 are **done** — the table below is complete; there is no
 outstanding `dispatched`/`in review` work. The game deploys to GitHub
 Pages via `.github/workflows/deploy.yml` on every push to main. Wind is a
 real mechanic again (round 7). Rain is continuous (round 9). Layouts can
@@ -51,6 +51,7 @@ actually did the work.
 | 13 | cross-module (eco-dex + ambient pad) | main session (Opus) | done | Profile ecoDex unlocks flower/butterfly/bee on fieldBloom (matches render eco). New ecodex scene from level-select. Soft sun-keyed ambient pad (optional setAmbient) under rain. Storage v2 with v1 migrate. Tests 43→44. |
 | 14 | cross-module (seasons + L19–20) | main session (Opus) | done | Optional LevelDef.season tints sky/land; tiny evap bias (summer ×1.12, winter ×0.88). L19 夏天的太阳, L20 秋天的雨. Never a hard gate. Calibrate ok. |
 | 15 | cross-module (daily challenge) | main session (Opus) | done | Date-seeded LevelDef id=900 via mulberry32(YYYYMMDD). Level-select 今日天气 button. Same day = same layout; no server. Completability tests for several seeds. Daily next → level list. Ceiling-raise Phase 1–meta slice closed. Tests 44→49. |
+| 16 | cross-module (ground soak + soft facts + energy + wind/bird art) | main session (Opus) | done | **Ground soak**: rain off-field becomes a wet disc that bleeds into nearby fields (fixes "must glue to field"). **Facts**: result card is a quiet footnote *below* next/back, no glow. **Energy**: 5/day non-IAA, 20min regen, no ads. Rest hint after 12min play. **Art**: wind ribbons + fleshed bird flock. Tests 49→54. |
 | 7 | cross-module (wind, obstacles, levels, stars) | main session (Opus) | done | Driven by a second playtest ("怎么才能三星呀，你也没明确说明；加风阻；通关之后的滚动条有时候会莫名卡住；再多设计一些关卡，加点动态障碍"). **Wind is a real mechanic again** — see the rewritten section below; the round-2 "wind is cosmetic" decision is now reversed with the user's explicit go-ahead. **Three dynamic obstacles** (热气流 / 飞鸟群 / 冷空气团) with sim, render, audio and per-obstacle events. **Five new levels (11–15)**, one per obstacle then two combining them. **Star criteria are finally stated**: the 3★ gate on the level-select card, a live `⏱ x/ys 💧 a/b` pill in the HUD, and a result-screen breakdown naming which gate you missed. **Two bugs found and fixed en route** — the level-select grid was unscrollable (`ec2fffc`) and clamping left phantom velocity (below). Tests 21 → 32; `tools/` gained the calibration rig round 2 used but never committed |
 
 ### The clamped-spring bug: holding low over a field silently did nothing
@@ -99,6 +100,28 @@ than weather.
 L7/L8 now deliver what their names promise: L7 parks the cloud 34u downwind
 (~⅓ of a field's ~86u rain-catch radius, so you must aim upwind to water
 accurately), L8 swings between ~2u and ~54u on a 3.2s gust cycle.
+
+### Round 16: rain lands on the ground + softer session design
+
+Playtest: "only works when the cloud is glued to the field" and "你知道吗 is
+too intrusive"; also asked to learn from 《赵云与阿斗》-style pacing without
+IAA, and to beautify wind/birds.
+
+**Ground soak.** Missed rain (not on field/mountain/snow) creates a
+`GroundSoak` disc; nearby fields draw moisture with inverse-distance weight
+over ~2.2s. Direct over-field rain is still best (simplest path). 30% of
+off-field rain still wastes so aim still matters for stars.
+
+**Facts demoted.** Result screen: stars → star-why → **Next/Back** → optional
+rest hint → tiny fact footnote. No glow animation. Copy: "小知识 · 想看就点".
+
+**Energy (non-IAA).** 5 starts/day, 1 per level, +1 / 20min, full refill at
+midnight. No ads, no purchase. Empty → soft message on level-select, not a
+paywall. Session rest hint after 12 minutes of active play (never hard-locks).
+
+**Wind/bird art.** Wind = layered undulating ribbons with soft tips (no HUD
+arrowheads). Birds = body+belly+beak+tail flock with real flap arc; hitbox
+unchanged (lead only).
 
 ### Round 15: daily weather challenge
 
@@ -429,7 +452,7 @@ Run before you start, and again before you hand back:
 ```
 npm install
 npm run typecheck   # must stay clean
-npm test            # 49 tests must stay green
+npm test            # 54 tests must stay green
 npm run build        # must succeed
 npm run dev          # then ACTUALLY PLAY IT in a browser — see below
 ```

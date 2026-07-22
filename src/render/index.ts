@@ -333,6 +333,27 @@ function drawTinyTree(ctx: CanvasRenderingContext2D, x: number, y: number, h: nu
   ctx.fill();
 }
 
+/** Soft wet rings where rain hit the ground (round 16 soaks). */
+function drawSoaks(ctx: CanvasRenderingContext2D, state: GameState): void {
+  if (state.soaks.length === 0) return;
+  const lifeMax = 2200; // matches SOAK_LIFE_MS in sim
+  ctx.save();
+  for (const s of state.soaks) {
+    const life01 = Math.max(0, Math.min(1, s.lifeMs / lifeMax));
+    const fill01 = Math.max(0, Math.min(1, s.amount / 30));
+    const alpha = 0.12 + 0.28 * life01 * (0.4 + 0.6 * fill01);
+    const r = s.radius * (0.55 + 0.45 * life01);
+    ctx.fillStyle = `rgba(70, 140, 200, ${alpha.toFixed(3)})`;
+    ctx.beginPath();
+    ctx.ellipse(s.pos.x, s.pos.y, r, r * 0.45, 0, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.strokeStyle = `rgba(255,255,255,${(0.2 * life01).toFixed(3)})`;
+    ctx.lineWidth = Math.max(1, state.bounds.h * 0.003);
+    ctx.stroke();
+  }
+  ctx.restore();
+}
+
 /**
  * Short blue trickle from a runoff hit toward its destination field. Pure
  * visual — progress is (1 - delayMs/RUNOFF_DELAY_MS), so it finishes as the
@@ -1177,11 +1198,11 @@ function drawRainbow(ctx: CanvasRenderingContext2D, state: GameState): void {
 }
 
 /**
- * Wind is a real mechanic as of round 7 (it displaces the cloud from the
- * player's finger), so the hint has to actually communicate direction AND
- * strength — the old three static chevrons in one corner did neither. These are
- * drifting streaks spread over the sky whose count, length, opacity and travel
- * speed all scale with the wind, so a gust visibly surges.
+ * Wind as weather, not UI chevrons (round 16 polish). Soft layered ribbons with
+ * a slight vertical undulation and a translucent tail — direction is still
+ * unambiguous, but the picture reads as moving air rather than a HUD arrow.
+ * Speed deliberately stays in the "cloud-pace" band from round 8 so air never
+ * outruns the cloud it is supposed to be pushing.
  */
 function drawWindHint(ctx: CanvasRenderingContext2D, state: GameState): void {
   const windX = state.wind.baseX + state.wind.gustX;
@@ -1190,36 +1211,61 @@ function drawWindHint(ctx: CanvasRenderingContext2D, state: GameState): void {
   const t = state.stats.elapsedMs / 1000;
   const dir = Math.sign(windX);
   const strength = Math.min(1, Math.abs(windX) / 60);
-  const count = 3 + Math.round(strength * 5);
+  // More ribbons at higher wind, but always at least a few so a gentle breeze
+  // is still legible without filling the sky.
+  const count = 4 + Math.round(strength * 6);
 
   ctx.save();
-  ctx.strokeStyle = '#ffffff';
   ctx.lineCap = 'round';
+  ctx.lineJoin = 'round';
   for (let i = 0; i < count; i++) {
-    const seed = hash1(i * 7.13);
-    const y = h * (0.1 + seed * 0.42);
-    const len = h * (0.05 + 0.11 * strength) * (0.6 + seed * 0.8);
-    // Streaks used to run at 90–350 u/s, which the player read as "the wind
-    // looks too fast to be real" — air moving visibly faster than the cloud it
-    // is supposed to be pushing. Roughly a third of that tracks the cloud's own
-    // drift and reads as moving air rather than a fan.
-    const speed = (34 + 92 * strength) * (0.7 + seed * 0.6);
-    // wrap across a span wider than the world so streaks enter from off-screen
-    const span = w + len * 2;
-    const x = (((t * speed * dir + seed * span) % span) + span) % span - len;
-    ctx.globalAlpha = (0.16 + 0.3 * strength) * (0.5 + seed * 0.5);
-    ctx.lineWidth = Math.max(1.5, h * 0.004 * (0.7 + strength));
+    const seed = hash1(i * 7.13 + 0.3);
+    const yBase = h * (0.08 + seed * 0.48);
+    const len = h * (0.07 + 0.14 * strength) * (0.55 + seed * 0.7);
+    const speed = (28 + 70 * strength) * (0.65 + seed * 0.55);
+    const span = w + len * 2.4;
+    const x0 = (((t * speed * dir + seed * span) % span) + span) % span - len;
+    const amp = h * (0.006 + 0.01 * strength) * (0.5 + seed);
+    const segments = 10;
+    const alpha = (0.14 + 0.32 * strength) * (0.45 + seed * 0.55);
+
+    // Soft outer glow ribbon
+    ctx.strokeStyle = `rgba(255,255,255,${(alpha * 0.45).toFixed(3)})`;
+    ctx.lineWidth = Math.max(3, h * 0.01 * (0.7 + strength));
     ctx.beginPath();
-    ctx.moveTo(x, y);
-    ctx.lineTo(x + len * dir, y);
+    for (let s = 0; s <= segments; s++) {
+      const u = s / segments;
+      const x = x0 + u * len * dir;
+      const y = yBase + Math.sin(u * Math.PI * 2 + t * 1.4 + seed * 6) * amp * (1 - u * 0.35);
+      if (s === 0) ctx.moveTo(x, y);
+      else ctx.lineTo(x, y);
+    }
     ctx.stroke();
-    // a small arrowhead on the leading end so direction is unambiguous
+
+    // Crisp inner filament
+    ctx.strokeStyle = `rgba(240,248,255,${(alpha * 0.95).toFixed(3)})`;
+    ctx.lineWidth = Math.max(1.2, h * 0.0035 * (0.8 + strength * 0.6));
     ctx.beginPath();
-    ctx.moveTo(x + len * dir, y);
-    ctx.lineTo(x + (len - h * 0.016) * dir, y - h * 0.009);
-    ctx.moveTo(x + len * dir, y);
-    ctx.lineTo(x + (len - h * 0.016) * dir, y + h * 0.009);
+    for (let s = 0; s <= segments; s++) {
+      const u = s / segments;
+      const x = x0 + u * len * dir;
+      const y = yBase + Math.sin(u * Math.PI * 2 + t * 1.4 + seed * 6) * amp * (1 - u * 0.35);
+      if (s === 0) ctx.moveTo(x, y);
+      else ctx.lineTo(x, y);
+    }
     ctx.stroke();
+
+    // Soft leading tip (no hard arrowhead — still reads as direction from the taper)
+    const tipX = x0 + len * dir;
+    const tipY = yBase + Math.sin(Math.PI * 2 + t * 1.4 + seed * 6) * amp * 0.65;
+    const tipR = h * (0.004 + 0.003 * strength);
+    const tipGrad = ctx.createRadialGradient(tipX, tipY, 0, tipX, tipY, tipR * 2.2);
+    tipGrad.addColorStop(0, `rgba(255,255,255,${(0.55 * alpha + 0.15).toFixed(3)})`);
+    tipGrad.addColorStop(1, 'rgba(255,255,255,0)');
+    ctx.fillStyle = tipGrad;
+    ctx.beginPath();
+    ctx.arc(tipX, tipY, tipR * 2.2, 0, Math.PI * 2);
+    ctx.fill();
   }
   ctx.restore();
 }
@@ -1296,8 +1342,11 @@ function drawThermal(ctx: CanvasRenderingContext2D, t: Thermal, timeMs: number, 
   ctx.restore();
 }
 
-/** One flapping V silhouette at an arbitrary offset/scale/phase — the building
- *  block drawBird composes into a flock. */
+/**
+ * One bird of a flock (round 16 polish). Still a readable silhouette for kids,
+ * but with body mass, a soft belly, and wings that fold through a real flap
+ * arc instead of a flat V-prop. Hitbox remains the lead bird's sim position.
+ */
 function drawOneBirdMark(
   ctx: CanvasRenderingContext2D,
   x: number,
@@ -1307,44 +1356,120 @@ function drawOneBirdMark(
   flapPhase: number,
   alpha: number,
 ): void {
-  const lift = Math.sin(flapPhase) * r * 0.55;
+  // flapPhase ~0..∞; sin maps to wing up/down. Asymmetric ease so the downstroke
+  // is a touch faster (more "bird") without needing a second oscillator.
+  const flap = Math.sin(flapPhase);
+  const wingY = flap * r * 0.7;
+  const wingSpread = r * (0.95 + 0.15 * Math.abs(flap));
+
   ctx.save();
   ctx.translate(x, y);
   ctx.scale(dir, 1);
   ctx.globalAlpha = alpha;
   ctx.lineCap = 'round';
   ctx.lineJoin = 'round';
-  for (const pass of [0, 1]) {
-    ctx.strokeStyle = pass === 0 ? 'rgba(255,255,255,0.5)' : 'rgba(38, 56, 76, 0.95)';
-    ctx.lineWidth = pass === 0 ? Math.max(5, r * 0.52) : Math.max(3, r * 0.3);
+
+  // Soft contact shadow under the bird — grounds it in the sky instead of a
+  // floating stroke.
+  ctx.fillStyle = 'rgba(30, 50, 70, 0.12)';
+  ctx.beginPath();
+  ctx.ellipse(0, r * 0.55, r * 0.7, r * 0.22, 0, 0, Math.PI * 2);
+  ctx.fill();
+
+  // Wings first (behind body)
+  for (const side of [-1, 1]) {
+    // Outer glow pass
+    ctx.strokeStyle = 'rgba(255,255,255,0.45)';
+    ctx.lineWidth = Math.max(3.5, r * 0.42);
     ctx.beginPath();
-    ctx.moveTo(-r, lift * 0.5);
-    ctx.quadraticCurveTo(-r * 0.45, -lift, 0, r * 0.14);
-    ctx.quadraticCurveTo(r * 0.45, -lift, r, lift * 0.5);
+    ctx.moveTo(0, r * 0.05);
+    ctx.quadraticCurveTo(side * wingSpread * 0.55, -wingY * 0.3, side * wingSpread, -wingY);
+    ctx.stroke();
+    // Ink pass
+    ctx.strokeStyle = 'rgba(42, 58, 78, 0.95)';
+    ctx.lineWidth = Math.max(2, r * 0.24);
+    ctx.beginPath();
+    ctx.moveTo(0, r * 0.05);
+    ctx.quadraticCurveTo(side * wingSpread * 0.55, -wingY * 0.3, side * wingSpread, -wingY);
+    ctx.stroke();
+    // Secondary feather tip
+    ctx.strokeStyle = 'rgba(42, 58, 78, 0.55)';
+    ctx.lineWidth = Math.max(1.2, r * 0.12);
+    ctx.beginPath();
+    ctx.moveTo(side * wingSpread * 0.55, -wingY * 0.25);
+    ctx.quadraticCurveTo(side * wingSpread * 0.85, -wingY * 0.55, side * wingSpread * 1.05, -wingY * 0.35);
     ctx.stroke();
   }
+
+  // Body — warm-dark oval with a soft belly highlight
+  const bodyGrad = ctx.createRadialGradient(-r * 0.15, -r * 0.1, r * 0.05, 0, 0, r * 0.7);
+  bodyGrad.addColorStop(0, '#6a7d92');
+  bodyGrad.addColorStop(0.55, '#3d4f64');
+  bodyGrad.addColorStop(1, '#2a3a4e');
+  ctx.fillStyle = bodyGrad;
+  ctx.beginPath();
+  ctx.ellipse(0, r * 0.06, r * 0.42, r * 0.32, 0, 0, Math.PI * 2);
+  ctx.fill();
+  // Belly
+  ctx.fillStyle = 'rgba(230, 220, 200, 0.55)';
+  ctx.beginPath();
+  ctx.ellipse(r * 0.02, r * 0.16, r * 0.22, r * 0.14, 0, 0, Math.PI * 2);
+  ctx.fill();
+
+  // Head
+  ctx.fillStyle = '#2f4156';
+  ctx.beginPath();
+  ctx.arc(r * 0.32, -r * 0.02, r * 0.2, 0, Math.PI * 2);
+  ctx.fill();
+  // Eye glint
+  ctx.fillStyle = 'rgba(255,255,255,0.9)';
+  ctx.beginPath();
+  ctx.arc(r * 0.38, -r * 0.06, r * 0.045, 0, Math.PI * 2);
+  ctx.fill();
+  // Beak
+  ctx.fillStyle = '#e8a05a';
+  ctx.beginPath();
+  ctx.moveTo(r * 0.48, 0);
+  ctx.lineTo(r * 0.72, r * 0.04);
+  ctx.lineTo(r * 0.48, r * 0.1);
+  ctx.closePath();
+  ctx.fill();
+
+  // Tail
+  ctx.strokeStyle = 'rgba(42, 58, 78, 0.85)';
+  ctx.lineWidth = Math.max(1.5, r * 0.14);
+  ctx.beginPath();
+  ctx.moveTo(-r * 0.35, r * 0.05);
+  ctx.quadraticCurveTo(-r * 0.7, r * 0.15, -r * 0.85, -r * 0.05);
+  ctx.stroke();
+
   ctx.restore();
 }
 
 /**
  * A little flock, not a lone bird. `flap` is advanced by the Sim so this stays
- * pure. Round 8 upgrade: a single V-mark read as a "prop" rather than an
- * animal — real flocks are loose clusters of several birds at slightly
- * different sizes, phases and trailing offsets. Only the lead mark's position
- * is the actual hitbox (it IS `b.pos`/`b.radius` from Sim); the two companions
- * are purely decorative and trail behind at fixed offsets scaled by direction,
- * so the whole cluster reads as one flock moving together without changing
- * what the player can collide with.
+ * pure. Lead mark = hitbox; companions are decorative trailers at fixed offsets.
+ * Round 16: more companions + staggered flap so it reads as a living flock,
+ * not three identical stamps.
  */
 function drawBird(ctx: CanvasRenderingContext2D, b: Bird): void {
   const r = b.radius;
   const dir = b.vx >= 0 ? 1 : -1;
   const companions = [
-    { dx: -2.6, dy: -0.7, scale: 0.72, phase: 0.6 },
-    { dx: -4.4, dy: 0.9, scale: 0.58, phase: 1.3 },
+    { dx: -2.2, dy: -0.85, scale: 0.78, phase: 0.55 },
+    { dx: -3.6, dy: 0.55, scale: 0.68, phase: 1.15 },
+    { dx: -5.0, dy: -0.25, scale: 0.55, phase: 1.9 },
   ];
   for (const c of companions) {
-    drawOneBirdMark(ctx, b.pos.x - c.dx * r * dir, b.pos.y + c.dy * r, r * c.scale, dir, b.flap + c.phase, 0.75);
+    drawOneBirdMark(
+      ctx,
+      b.pos.x - c.dx * r * dir,
+      b.pos.y + c.dy * r,
+      r * c.scale,
+      dir,
+      b.flap + c.phase,
+      0.72,
+    );
   }
   drawOneBirdMark(ctx, b.pos.x, b.pos.y, r, dir, b.flap, 1);
 }
@@ -1410,6 +1535,7 @@ export function createRender(): RenderModule {
       const pack = state.snow.find((s) => s.mountainId === mi);
       if (pack) drawSnowPack(ctx, m, pack.amount, state.stats.elapsedMs);
     }
+    drawSoaks(ctx, state);
     drawRunoff(ctx, state);
     drawSnowFlakes(ctx, state);
     const windStrength = Math.max(-1, Math.min(1, (state.wind.baseX + state.wind.gustX) / 60));

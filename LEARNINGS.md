@@ -10,6 +10,26 @@ what was reasoned. Prefer "we tried X, it cost Y" over "best practice is X".
 
 ---
 
+## Rain / spatial fairness
+
+**2026-07-23 — Rain should hit the ground first.** A hitbox that only waters
+when the cloud is centered on a field teaches "aim" but fights the water-cycle
+lesson and feels broken to kids. A ground-soak disc (rain lands → nearby fields
+draw over ~2s) keeps aiming meaningful (direct hit still best; waste still
+exists) while matching "rain falls on the land". Prefer re-routing waste into
+a delayed feed over expanding the direct hitbox alone.
+
+**2026-07-23 — Don't copy IAA stamina into education.** 《赵云与阿斗》-style
+energy gates drive ads/return visits. For a 6yo water-cycle game: use a
+*local, non-monetized* daily budget (e.g. 5 starts, 20min regen, midnight
+refill) plus a soft rest hint after long play — never a hard lock, never an
+ad button. Short levels already create "one more run"; energy only caps the
+day, it doesn't sell the next one.
+
+**2026-07-23 — Result-screen teaching is the wrong beat.** After a win the
+child wants Next. A glowing "你知道吗" card is invasive. Put knowledge in a
+dex the player opens, or a quiet footnote under the primary actions.
+
 ## Architecture / performance
 
 **2026-07-20 — Measure before you re-platform.** Asked to evaluate whether the

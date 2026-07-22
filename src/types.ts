@@ -48,6 +48,13 @@ export interface Cloud {
   water: number;
   maxWater: number;
   raining: boolean;
+  /**
+   * How hard the cloud is raining right now, 0..1. 0 when not raining.
+   * Maps onto rate, particle density, rain-sound brightness and the drip-hem
+   * darkness so a light hold and a long hold *look and sound* different.
+   * See InputIntent.rainPressure for how the player drives this.
+   */
+  rainPressure: number;
   /** True while frozen — inside a ColdFront, or still thawing after leaving. */
   chilled: boolean;
   /** Milliseconds of thaw left after leaving a cold front. */
@@ -145,6 +152,18 @@ export interface InputIntent {
   pointerActive: boolean;
   pointer: Vec2;
   rainHeld: boolean;
+  /**
+   * Continuous rain intensity, 0..1. Optional so existing call sites
+   * (tests, autopilot) that only set `rainHeld` keep working: the Sim treats
+   * a missing value as a mid-strength default (~0.58 → rate ×1.0) so calibrated
+   * star gates and the "every level completes" autopilot do not silently
+   * rescale. Player input ramps this with hold duration — a short hold is a
+   * light drizzle (precise, slow), a long hold is a downpour (fast, easier to
+   * overwater). Force-touch / second-finger is deliberately NOT required: those
+   * only work on some devices and would break the 6-year-old "simplest path"
+   * redline if they were the only way to rain hard.
+   */
+  rainPressure?: number;
 }
 
 // ————————————————————————————————————————————————————————————
@@ -155,6 +174,12 @@ export type SimEvent =
   | { type: 'evaporate'; amount: number }
   | { type: 'rainStart' }
   | { type: 'rainStop' }
+  /**
+   * Emitted every sim step while raining (and once at the edge) so Audio can
+   * continuous-modulate the rain loop's gain/brightness with pressure. Cheap
+   * and throttled at the listener; not a gameplay event.
+   */
+  | { type: 'rainPressure'; pressure: number }
   | { type: 'fieldBloom'; fieldId: number }
   | { type: 'fieldOverwater'; fieldId: number }
   | { type: 'mountainLeak'; amount: number }

@@ -119,6 +119,91 @@ describe('sim: raining onto a field', () => {
     expect(state.stats.waterWasted).toBeGreaterThan(0);
     expect(state.fields[0].moisture).toBe(0);
   });
+
+  it('defaults missing rainPressure to mid-strength so rainHeld-only callers keep rate×1', () => {
+    // Autopilot and older tests only set rainHeld. The default pressure must
+    // land on rateMul≈1.0 so calibrated star gates and "every level completes"
+    // keep their meaning after the continuous-pressure change.
+    const sim = createSim();
+    const level = makeLevel();
+    const state = sim.init(level);
+    state.cloud.pos = { x: level.worldW * 0.15, y: level.worldH * 0.5 };
+    state.cloud.water = 100;
+
+    const intent: InputIntent = {
+      pointerActive: true,
+      pointer: { ...state.cloud.pos },
+      rainHeld: true,
+      // rainPressure deliberately omitted
+    };
+    runSteps(sim, state, intent, 1);
+
+    expect(state.cloud.raining).toBe(true);
+    // (1.0 - 0.3) / 1.2 = 7/12 ≈ 0.5833… → rateMul exactly 1.0.
+    expect(state.cloud.rainPressure).toBeCloseTo((1.0 - 0.3) / 1.2, 5);
+    // One 1/60s step at rainRate 60 and mul≈1 empties ~1 unit.
+    expect(state.stats.waterRained).toBeGreaterThan(0.9);
+    expect(state.stats.waterRained).toBeLessThan(1.1);
+  });
+
+  it('scales rain rate with pressure: light is slower, heavy is faster', () => {
+    const sim = createSim();
+    const level = makeLevel();
+
+    function rainedAt(pressure: number): number {
+      const state = sim.init(level);
+      state.cloud.pos = { x: level.worldW * 0.15, y: level.worldH * 0.5 };
+      state.cloud.water = 100;
+      const intent: InputIntent = {
+        pointerActive: true,
+        pointer: { ...state.cloud.pos },
+        rainHeld: true,
+        rainPressure: pressure,
+      };
+      runSteps(sim, state, intent, 60); // 1 second
+      return state.stats.waterRained;
+    }
+
+    const light = rainedAt(0);
+    const mid = rainedAt((1.0 - 0.3) / 1.2);
+    const heavy = rainedAt(1);
+
+    // rainRate=60 → 1s of mid should be ~60; light ×0.3 → ~18; heavy ×1.5 → ~90.
+    expect(light).toBeGreaterThan(15);
+    expect(light).toBeLessThan(22);
+    expect(mid).toBeGreaterThan(55);
+    expect(mid).toBeLessThan(65);
+    expect(heavy).toBeGreaterThan(85);
+    expect(heavy).toBeLessThan(95);
+    expect(heavy).toBeGreaterThan(mid);
+    expect(mid).toBeGreaterThan(light);
+  });
+
+  it('emits rainPressure events while raining and clears pressure on stop', () => {
+    const sim = createSim();
+    const level = makeLevel();
+    const state = sim.init(level);
+    state.cloud.pos = { x: level.worldW * 0.15, y: level.worldH * 0.5 };
+    state.cloud.water = 50;
+
+    const raining: InputIntent = {
+      pointerActive: true,
+      pointer: { ...state.cloud.pos },
+      rainHeld: true,
+      rainPressure: 0.9,
+    };
+    const events = runSteps(sim, state, raining, 3);
+    const pressureEvents = events.filter((e) => e.type === 'rainPressure');
+    expect(pressureEvents.length).toBe(3);
+    expect(pressureEvents.every((e) => e.type === 'rainPressure' && e.pressure === 0.9)).toBe(true);
+    expect(state.cloud.rainPressure).toBe(0.9);
+
+    const idle: InputIntent = { pointerActive: false, pointer: { x: 0, y: 0 }, rainHeld: false };
+    const stopEvents = runSteps(sim, state, idle, 1);
+    expect(stopEvents.some((e) => e.type === 'rainStop')).toBe(true);
+    expect(state.cloud.raining).toBe(false);
+    expect(state.cloud.rainPressure).toBe(0);
+  });
 });
 
 describe('sim: overwatering is recoverable, never a failure', () => {

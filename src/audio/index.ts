@@ -55,7 +55,11 @@ export function createAudio(): AudioModule {
   let muted = false;
   let rainSource: AudioBufferSourceNode | null = null;
   let rainGain: GainNode | null = null;
+  let rainFilter: BiquadFilterNode | null = null;
   let rainLfo: OscillatorNode | null = null;
+  // Last pressure we applied to the live rain loop; used so setRainPressure can
+  // no-op when nothing changed and avoid stampeding the AudioParam schedule.
+  let rainPressureApplied = -1;
   const lastPlayedAt: Partial<Record<string, number>> = {};
 
   function ensureCtx(): AudioContext | null {
@@ -210,7 +214,21 @@ export function createAudio(): AudioModule {
     return true;
   }
 
-  function startRainLoop(): void {
+  /**
+   * Map 0..1 rain pressure onto the live loop's gain and lowpass cutoff.
+   * Anchored on the round-6 measured "default" of gain 0.28 / cutoff 1600Hz
+   * (which is what pressure≈0.58 — the autopilot default — produces). Light
+   * drizzle is quieter and darker; downpour is louder and a touch brighter,
+   * but never past the harshness that playtest rejected.
+   */
+  function rainGainFor(pressure: number): number {
+    return 0.14 + 0.24 * pressure; // 0.14..0.38; mid (0.58) ≈ 0.28
+  }
+  function rainCutoffFor(pressure: number): number {
+    return 1100 + 900 * pressure; // 1100..2000; mid ≈ 1620
+  }
+
+  function startRainLoop(initialPressure = 0.58): void {
     const audioCtx = ensureCtx();
     if (!audioCtx || !master || rainSource) return;
     // Playtest feedback: the old white-noise bandpass (2200Hz) hiss was
@@ -225,14 +243,15 @@ export function createAudio(): AudioModule {
     // OfflineAudioContext: -45dBFS overall, and only 58% of that surviving a
     // >500Hz speaker => ~-50dBFS effective, i.e. silent in any real room. That
     // read as "下雨声音没有了" in playtest, and it was.
-    // These values measure -38dBFS with 95% surviving >500Hz. If you retune
-    // them, re-measure rather than reasoning about the gain number alone.
+    // The default (pressure≈0.58) still measures ~-38dBFS with 95% surviving
+    // >500Hz. Pressure only moves gain/cutoff around that anchor; if you retune
+    // the anchor, re-measure rather than reasoning about the gain number alone.
     const source = audioCtx.createBufferSource();
     source.buffer = pinkNoiseBuffer(audioCtx);
     source.loop = true;
     const filter = audioCtx.createBiquadFilter();
     filter.type = 'lowpass';
-    filter.frequency.value = 1600;
+    filter.frequency.value = rainCutoffFor(initialPressure);
     filter.Q.value = 0.4;
     // Drops sub-160Hz rumble that small speakers can't reproduce anyway — it
     // only ate headroom that the audible band needed.
@@ -253,7 +272,7 @@ export function createAudio(): AudioModule {
 
     const gain = audioCtx.createGain();
     gain.gain.value = 0;
-    gain.gain.linearRampToValueAtTime(0.28, audioCtx.currentTime + 0.25);
+    gain.gain.linearRampToValueAtTime(rainGainFor(initialPressure), audioCtx.currentTime + 0.25);
     source.connect(filter);
     filter.connect(rumbleCut);
     rumbleCut.connect(gain);
@@ -261,14 +280,34 @@ export function createAudio(): AudioModule {
     source.start();
     rainSource = source;
     rainGain = gain;
+    rainFilter = filter;
     rainLfo = lfo;
+    rainPressureApplied = initialPressure;
+  }
+
+  function setRainPressure(pressure: number): void {
+    if (!rainGain || !rainFilter || !ctx) return;
+    const p = Math.max(0, Math.min(1, pressure));
+    // Skip no-ops so a 60Hz rainPressure event stream doesn't thrash AudioParam.
+    if (Math.abs(p - rainPressureApplied) < 0.02) return;
+    rainPressureApplied = p;
+    const t = ctx.currentTime;
+    rainGain.gain.cancelScheduledValues(t);
+    rainGain.gain.setValueAtTime(rainGain.gain.value, t);
+    rainGain.gain.linearRampToValueAtTime(rainGainFor(p), t + 0.08);
+    // LFO is still connected to filter.frequency; setValueAtTime sets the
+    // base the LFO modulates around. A short ramp would fight the LFO, so we
+    // snap the base and let the existing LFO keep breathing.
+    rainFilter.frequency.setValueAtTime(rainCutoffFor(p), t);
   }
 
   function stopRainLoop(): void {
     if (!rainSource || !rainGain || !ctx) {
       rainSource = null;
       rainGain = null;
+      rainFilter = null;
       rainLfo = null;
+      rainPressureApplied = -1;
       return;
     }
     const stopAt = ctx.currentTime + 0.15;
@@ -277,7 +316,9 @@ export function createAudio(): AudioModule {
     rainLfo?.stop(stopAt + 0.02);
     rainSource = null;
     rainGain = null;
+    rainFilter = null;
     rainLfo = null;
+    rainPressureApplied = -1;
   }
 
   function play(e: SimEvent | UiSound): void {
@@ -310,10 +351,16 @@ export function createAudio(): AudioModule {
         });
         break;
       case 'rainStart':
-        startRainLoop();
+        // Start at the mid-strength default; the next rainPressure event (same
+        // sim step, or the following one) will re-home gain/cutoff if the
+        // player is already mid-ramp.
+        startRainLoop(0.58);
         break;
       case 'rainStop':
         stopRainLoop();
+        break;
+      case 'rainPressure':
+        setRainPressure(e.pressure);
         break;
       case 'fieldBloom': {
         // A four-note twinkling cascade with a bell timbre (fundamental +

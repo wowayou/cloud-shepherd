@@ -3,19 +3,19 @@
 ## Where things stand
 
 The v1 grey-box milestone turned into a **fully working game**, not just
-stubs: all 11 levels (tutorial + 10, × easy/hard) are playable start to
+stubs: all 16 levels (tutorial + 15, × easy/hard) are playable start to
 finish — drag the cloud, fight the wind, absorb over the sea, rain on
-fields, bloom, get scored, see a fact card, progress to the next level. It
-has been manually verified end-to-end in a real Chromium browser (not just
-`npm test`/typecheck — see "the pointer-events bug" below for why that
-distinction matters).
+fields (with continuous intensity as of round 9), bloom, get scored, see a
+fact card, progress to the next level. It has been manually verified
+end-to-end in a real Chromium browser (not just `npm test`/typecheck — see
+"the pointer-events bug" below for why that distinction matters).
 
-All five rounds so far (module refinements 1–4 plus the round-5 playtest
-fix pass) are **done** — the table below is complete; there is no
+Rounds 1–9 are **done** — the table below is complete; there is no
 outstanding `dispatched`/`in review` work. The game deploys to GitHub
-Pages via `.github/workflows/deploy.yml` on every push to main. The remaining known, *decided*
-shortcut is the wind-as-cosmetic one (L7/L8), documented in its own section
-below — it stays unless someone re-opens it deliberately.
+Pages via `.github/workflows/deploy.yml` on every push to main. Wind is a
+real mechanic again (round 7 reversed the earlier cosmetic decision). The
+ceiling-raise design doc's later phases (hydrology, morphology, seasons,
+meta-game) remain backlog — see Round 9 for what was deliberately cut.
 
 So the job for each module now is **refinement, not bootstrapping**: tune
 feel, deepen the art/audio, harden edge cases — without breaking the other
@@ -42,6 +42,7 @@ actually did the work.
 | 6 | Audio (bugfix) | main session (Opus) | done | **Round 5's rain-sound rebuild made the rain inaudible.** It set gain `0.18→0.09` reasoning "half the old volume", but `pinkNoiseBuffer` already bakes in a `*0.11` scale that the old white-noise buffer never had, and the 850Hz lowpass put the remainder under the rolloff of the laptop/phone speakers this actually gets played on. Measured through an OfflineAudioContext in headless Chromium: **-45.4 dBFS overall, only 58% surviving a >500Hz speaker ⇒ ~-50 dBFS effective** — silent in any real room. Fixed to pink noise → lowpass 1600Hz → highpass 160Hz (drops sub-bass rumble small speakers can't reproduce anyway, which was only eating headroom) → gain 0.28: now **-38.2 dBFS with 93% surviving >500Hz**, ~11 dB louder where it counts while staying below the old harsh version overall, so the "不难受" character round 5 was chasing is preserved. Verified additionally by a real Playwright playthrough (skim sea → 100% water → hold over field): rain loop starts and stops cleanly, no console errors |
 
 | 8 | cross-module (natural-law causality, wind/bird/thermal quality, escalating difficulty) | main session (Opus) | done | Driven by a third playtest asking for causality over captions — see the dedicated section below. Cold-front thaw, mass-scaled wind, a simulated sun driving evaporation/thermals visibly, bird flocks instead of a lone silhouette, wind-swept grass, gusts slowed to read as weather, obstacles now start at level 3 and escalate. Tests 32 → 36 |
+| 9 | cross-module (rain pressure + juice — ceiling-raise Phase 1 slice) | main session (Opus) | done | Driven by the user's ceiling-raise design doc. **Not a wholesale build of the 12-week roadmap** — see the dedicated section below for what was cut and why. Shipped: continuous rain intensity via hold-duration (device-universal; force-touch / second-finger deliberately rejected as 6yo-simplest-path breakers), `rainPressure` on InputIntent/Cloud, rate mul 0.3..1.5 anchored so missing pressure = rate×1.0 (autopilot + star gates unchanged — `calibrate.ts` still all-ok in the 1.35×–3.2× band), particles 40→220 with pressure-scaled density/spray/fall, cloud face moods (idle/drinking/full/raining/chilled), storm-dark underside + drip-hem depth on heavy rain, rainbow on full-bloom + sun + residual rain (optical causality, no caption), rain-loop gain/cutoff track pressure around the round-6 measured anchor. Tests 36 → 39. **Out of scope this round** (still design-doc only): hydrology module, cloud split/morphology, eco-dex, music layers, seasons, sandbox, 32-level chapter plan |
 | 7 | cross-module (wind, obstacles, levels, stars) | main session (Opus) | done | Driven by a second playtest ("怎么才能三星呀，你也没明确说明；加风阻；通关之后的滚动条有时候会莫名卡住；再多设计一些关卡，加点动态障碍"). **Wind is a real mechanic again** — see the rewritten section below; the round-2 "wind is cosmetic" decision is now reversed with the user's explicit go-ahead. **Three dynamic obstacles** (热气流 / 飞鸟群 / 冷空气团) with sim, render, audio and per-obstacle events. **Five new levels (11–15)**, one per obstacle then two combining them. **Star criteria are finally stated**: the 3★ gate on the level-select card, a live `⏱ x/ys 💧 a/b` pill in the HUD, and a result-screen breakdown naming which gate you missed. **Two bugs found and fixed en route** — the level-select grid was unscrollable (`ec2fffc`) and clamping left phantom velocity (below). Tests 21 → 32; `tools/` gained the calibration rig round 2 used but never committed |
 
 ### The clamped-spring bug: holding low over a field silently did nothing
@@ -90,6 +91,82 @@ than weather.
 L7/L8 now deliver what their names promise: L7 parks the cloud 34u downwind
 (~⅓ of a field's ~86u rain-catch radius, so you must aim upwind to water
 accurately), L8 swings between ~2u and ~54u on a 3.2s gust cycle.
+
+### Round 9: rain as continuous expression (ceiling-raise Phase 1, optimized)
+
+The user dropped a 12-week "上限提升规格书" covering rain pressure, cloud
+morphology/split, terrain hydrology, eco-emergence, music layers, seasons,
+eco-dex, cosmetics, daily challenges, sandbox, and a 32-level chapter plan.
+Diagnosis of the current ceiling was **mostly right** — the core verb really
+is "drag + binary rain", the particle budget is almost unused, and the
+meta-game is thin — but several of the proposed fixes fight the project's own
+redlines, and shipping the whole roadmap in one pass would break the game
+while "improving" it. What follows is the critique that shaped this round,
+then what actually landed.
+
+**Diagnosis, checked against the code (not the brochure):**
+
+| Claim | Verdict |
+|-------|---------|
+| Core verb is drag + binary rain | **True.** `InputIntent.rainHeld: boolean`, one rate, one face. |
+| 16 levels, sea-left / field-right template | **Mostly true.** L0–15, obstacles escalate, but every level is still one sea on the left. |
+| Strategy = route + timing, no resource/risk | **Half.** Water budget, wind aim-off, cold-front timing, bird dodge already exist; what's missing is *expressiveness of the rain verb itself*. |
+| Particles cap 40, ~100× headroom | **True** (round-8 bench: 1000 particles ≈ 1% of frame). |
+| Meta-game = stars + fact cards only | **True.** |
+| Water cycle teaches only 1/4 (no snow/runoff/seasons) | **True of the curriculum**, but "teach the full cycle" is a multi-month content project, not a Phase-1 mechanic. |
+| No music | **True and deliberate** (round 5). Adding a 4-layer generative score is real work; not a free juice win. |
+
+**Redline conflicts in the raw design doc (things we will not ship as written):**
+
+1. **Force-touch / second-finger as the only way to rain hard** — breaks the
+   "6yo simplest path" and "works on every device" rules. Many phones have no
+   force-touch; many kids play one-handed. Continuous intensity must come from
+   something every pointer can do.
+2. **Cloud split (dual-finger control of two clouds)** — turns a one-verb
+   game into a multi-entity RTS on a touchscreen. Violates never-complicate-
+   the-simplest-path; the "ignore advanced mechanics and still clear every
+   level" redline would need a whole dual-path design to survive it.
+3. **Hydrology CA / river network / snowline as a new Sim module in Phase 1**
+   — multiplies the tuning surface and the failure modes before the rain
+   *verb* itself has any depth. Wrong order.
+4. **Eco-dex / cosmetics / daily challenge / sandbox** — pure meta content.
+   Fine later; zero effect on the "drag feels thin" complaint that started this.
+5. **Music layers L1–4** — real craft, not a checkbox. Round 5 deliberately
+   left music out after playtest preferred rain-only. Re-opening needs a
+   dedicated audio pass, not a free ride on a pressure change.
+6. **32-level chapter plan / Boss levels / 2× camera** — content production.
+   Don't design 16 more levels until the verb they would exercise is deeper.
+
+**What we optimized into the Phase-1 slice that *did* ship:**
+
+- **Intensity via hold-duration, not force/second-finger.** 900ms ease-in
+  ramp from 0.25 → 1.0; floor so a brand-new hold is still a real drizzle.
+  Auto-rain and the ☔ button both feed the same ramp. A 6-year-old who just
+  holds still keeps getting rain; a player who holds longer gets a downpour
+  *for free*, with no new gesture to discover.
+- **Default pressure = exact rate×1.0.** `rainPressure` is optional on
+  `InputIntent`. Missing → `(1.0 - 0.3) / 1.2`. Autopilot, every existing
+  test, and every star gate keep their calibrated meaning. Verified:
+  `npx vite-node tools/calibrate.ts` still reports all gates in band.
+- **Rate mul 0.3 + p·1.2** (doc's range) so light is precise-but-slow and
+  heavy is fast-but-easy-to-overwater — the risk/reward the doc wanted,
+  without a new resource system.
+- **Juice that makes the continuous axis legible without captions:**
+  particle density/spray/fall, drip-hem depth, storm-dark underside, O-mouth
+  size, rain-loop gain + lowpass cutoff (anchored on the round-6 measured
+  0.28/1600Hz default so we don't re-introduce "下雨声音没有了"), and a
+  rainbow that only appears when sun + residual rain + all fields bloomed
+  (real optical causality, no "you win" badge).
+- **Cloud moods from state, not a new animation system:** idle / drinking
+  (over sea) / full (wetness > 0.92) / raining / chilled. Pure function of
+  `GameState`, so Render stays pure and tests stay deterministic.
+
+**Deliberately not in this round** (still valid design-doc backlog, in the
+order we'd reopen them): (1) eco-response after bloom (butterflies on a timer
+— pure render, low risk), (2) a second sea / pond level template (breaks the
+left-sea monotony without a new module), (3) hydrology once the verb feels
+deep enough to need terrain as a puzzle, (4) music as its own audio pass,
+(5) meta-game only after the campaign itself is worth replaying.
 
 ### Round 8: causality over captions — the water cycle should need no text
 
@@ -245,7 +322,7 @@ Run before you start, and again before you hand back:
 ```
 npm install
 npm run typecheck   # must stay clean
-npm test            # 36 tests must stay green
+npm test            # 39 tests must stay green
 npm run build        # must succeed
 npm run dev          # then ACTUALLY PLAY IT in a browser — see below
 ```

@@ -629,38 +629,117 @@ function drawCloudBlob(ctx: CanvasRenderingContext2D, cx: number, cy: number, r:
   ctx.fill();
 }
 
-function drawCloudFace(ctx: CanvasRenderingContext2D, cx: number, cy: number, r: number, raining: boolean): void {
+/**
+ * Face states the cloud can wear. Driven purely from current GameState so
+ * Render stays a pure function — no animation state lives here.
+ *   idle     — smile + open eyes
+ *   drinking — content squint (over the sea, water climbing)
+ *   full     — cheeks puffed, brows up (water ≈ max)
+ *   raining  — determined O-mouth (any pressure)
+ *   chilled  — tight line mouth, tiny eyes (frozen / thawing)
+ */
+type CloudMood = 'idle' | 'drinking' | 'full' | 'raining' | 'chilled';
+
+function cloudMood(state: GameState): CloudMood {
+  const { cloud, sea } = state;
+  if (cloud.chilled) return 'chilled';
+  if (cloud.raining) return 'raining';
+  const wetness = cloud.maxWater > 0 ? cloud.water / cloud.maxWater : 0;
+  if (wetness > 0.92) return 'full';
+  // "Drinking" only when actually over the sea with room to fill — matches the
+  // vapor stream drawVapor already draws, so face and stream agree.
+  const overSea =
+    cloud.pos.x >= sea.x0 &&
+    cloud.pos.x <= sea.x1 &&
+    Math.abs(cloud.pos.y - sea.y) < state.bounds.h * 0.18;
+  if (overSea && wetness < 0.98 && wetness > 0.02) return 'drinking';
+  return 'idle';
+}
+
+function drawCloudFace(
+  ctx: CanvasRenderingContext2D,
+  cx: number,
+  cy: number,
+  r: number,
+  mood: CloudMood,
+  pressure: number,
+): void {
   const eyeDX = r * 0.24;
   const eyeY = cy - r * 0.04;
   const eyeR = r * 0.075;
 
+  // Eyes — shape changes with mood; colour stays the same so the face still
+  // reads as "the same cloud" across states.
   for (const dir of [-1, 1]) {
-    ctx.fillStyle = '#5c6b7a';
+    const ex = cx + dir * eyeDX;
+    if (mood === 'chilled') {
+      // tiny tight eyes
+      ctx.fillStyle = '#5c6b7a';
+      ctx.beginPath();
+      ctx.ellipse(ex, eyeY, eyeR * 0.7, eyeR * 0.55, 0, 0, Math.PI * 2);
+      ctx.fill();
+    } else if (mood === 'drinking' || mood === 'full') {
+      // content squint: a short downward arc instead of a dot
+      ctx.strokeStyle = '#5c6b7a';
+      ctx.lineWidth = Math.max(1.5, r * 0.055);
+      ctx.lineCap = 'round';
+      ctx.beginPath();
+      ctx.arc(ex, eyeY + eyeR * 0.15, eyeR * 0.9, Math.PI * 1.15, Math.PI * 1.85);
+      ctx.stroke();
+    } else {
+      ctx.fillStyle = '#5c6b7a';
+      ctx.beginPath();
+      ctx.arc(ex, eyeY, eyeR, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.fillStyle = 'rgba(255,255,255,0.85)';
+      ctx.beginPath();
+      ctx.arc(ex - eyeR * 0.32, eyeY - eyeR * 0.32, eyeR * 0.38, 0, Math.PI * 2);
+      ctx.fill();
+    }
+  }
+
+  // Cheeks — redder when full (puffed), paler when chilled.
+  const cheekA = mood === 'full' ? 0.55 : mood === 'chilled' ? 0.15 : 0.4;
+  ctx.fillStyle = `rgba(255,150,162,${cheekA})`;
+  for (const dir of [-1, 1]) {
+    const cheekScale = mood === 'full' ? 1.25 : 1;
     ctx.beginPath();
-    ctx.arc(cx + dir * eyeDX, eyeY, eyeR, 0, Math.PI * 2);
-    ctx.fill();
-    ctx.fillStyle = 'rgba(255,255,255,0.85)';
-    ctx.beginPath();
-    ctx.arc(cx + dir * eyeDX - eyeR * 0.32, eyeY - eyeR * 0.32, eyeR * 0.38, 0, Math.PI * 2);
+    ctx.ellipse(
+      cx + dir * r * 0.42,
+      cy + r * 0.14,
+      r * 0.11 * cheekScale,
+      r * 0.07 * cheekScale,
+      0,
+      0,
+      Math.PI * 2,
+    );
     ctx.fill();
   }
 
-  ctx.fillStyle = 'rgba(255,150,162,0.4)';
-  for (const dir of [-1, 1]) {
-    ctx.beginPath();
-    ctx.ellipse(cx + dir * r * 0.42, cy + r * 0.14, r * 0.11, r * 0.07, 0, 0, Math.PI * 2);
-    ctx.fill();
-  }
-
+  // Mouth
   ctx.strokeStyle = '#5c6b7a';
   ctx.lineWidth = Math.max(1, r * 0.05);
   ctx.lineCap = 'round';
-  if (raining) {
+  if (mood === 'raining') {
+    // O-mouth whose size tracks rain pressure: light drizzle = small, downpour = big effort.
+    const mouthR = r * (0.07 + 0.06 * pressure);
     ctx.fillStyle = '#5c6b7a';
     ctx.beginPath();
-    ctx.ellipse(cx, cy + r * 0.08, r * 0.08, r * 0.1, 0, 0, Math.PI * 2);
+    ctx.ellipse(cx, cy + r * 0.1, mouthR * 0.85, mouthR, 0, 0, Math.PI * 2);
     ctx.fill();
+  } else if (mood === 'chilled') {
+    // flat freeze line
+    ctx.beginPath();
+    ctx.moveTo(cx - r * 0.14, cy + r * 0.12);
+    ctx.lineTo(cx + r * 0.14, cy + r * 0.12);
+    ctx.stroke();
+  } else if (mood === 'full') {
+    // small proud smile, slightly upturned
+    ctx.beginPath();
+    ctx.arc(cx, cy + r * 0.06, r * 0.16, Math.PI * 0.15, Math.PI * 0.85);
+    ctx.stroke();
   } else {
+    // idle / drinking: open smile
     ctx.beginPath();
     ctx.arc(cx, cy + r * 0.02, r * 0.22, Math.PI * 0.15, Math.PI * 0.85);
     ctx.stroke();
@@ -677,6 +756,8 @@ function drawCloud(ctx: CanvasRenderingContext2D, state: GameState): void {
   const cx = cloud.pos.x;
   const cy = cloud.pos.y + bob;
   const r = baseR * breathe;
+  const mood = cloudMood(state);
+  const pressure = cloud.rainPressure;
 
   let bodyTuple = mixTuple([255, 255, 255], [162, 176, 191], wetness);
   let shadeTuple = mixTuple([210, 220, 228], [110, 126, 145], wetness);
@@ -686,6 +767,12 @@ function drawCloud(ctx: CanvasRenderingContext2D, state: GameState): void {
   if (cloud.chilled) {
     bodyTuple = mixTuple(bodyTuple, [198, 228, 246], 0.65);
     shadeTuple = mixTuple(shadeTuple, [150, 190, 220], 0.65);
+  } else if (cloud.raining && pressure > 0.55) {
+    // Heavy rain darkens the underside of the cloud — the sky cue that a real
+    // downpour is coming, without needing a caption.
+    const storm = (pressure - 0.55) / 0.45;
+    bodyTuple = mixTuple(bodyTuple, [120, 132, 150], 0.35 * storm);
+    shadeTuple = mixTuple(shadeTuple, [70, 84, 105], 0.45 * storm);
   }
 
   ctx.save();
@@ -705,11 +792,13 @@ function drawCloud(ctx: CanvasRenderingContext2D, state: GameState): void {
 
   if (cloud.raining) {
     // a soft, wavy drip-hem well below the face — clearly separate from it,
-    // so it never reads as a second row of eyes/mouths
+    // so it never reads as a second row of eyes/mouths. Darkness and dip depth
+    // both track pressure so a light hold and a long hold look different.
     const hemY = cy + r * 0.94;
-    const halfW = r * 1.16;
-    const scallops = 6;
-    ctx.fillStyle = 'rgba(63, 92, 138, 0.55)';
+    const halfW = r * (1.1 + 0.18 * pressure);
+    const scallops = 5 + Math.round(pressure * 3);
+    const alpha = 0.35 + 0.4 * pressure;
+    ctx.fillStyle = `rgba(63, 92, 138, ${alpha.toFixed(3)})`;
     ctx.beginPath();
     ctx.moveTo(cx - halfW, hemY - r * 0.12);
     ctx.lineTo(cx - halfW, hemY);
@@ -717,7 +806,7 @@ function drawCloud(ctx: CanvasRenderingContext2D, state: GameState): void {
       const x1 = cx - halfW + ((i + 1) / scallops) * halfW * 2;
       const xm = cx - halfW + ((i + 0.5) / scallops) * halfW * 2;
       const wob = Math.sin(t * 3.2 + i * 1.4) * r * 0.03;
-      const dip = hemY + r * (0.22 + wob);
+      const dip = hemY + r * (0.14 + 0.18 * pressure + wob);
       ctx.quadraticCurveTo(xm, dip, x1, hemY);
     }
     ctx.lineTo(cx + halfW, hemY - r * 0.12);
@@ -725,7 +814,7 @@ function drawCloud(ctx: CanvasRenderingContext2D, state: GameState): void {
     ctx.fill();
   }
 
-  drawCloudFace(ctx, cx, cy, r, cloud.raining);
+  drawCloudFace(ctx, cx, cy, r, mood, pressure);
 
   ctx.restore();
 }
@@ -733,11 +822,16 @@ function drawCloud(ctx: CanvasRenderingContext2D, state: GameState): void {
 function drawRain(ctx: CanvasRenderingContext2D, state: GameState): void {
   ctx.save();
   ctx.lineCap = 'round';
-  const dotR = Math.max(1, state.bounds.h * 0.0028);
+  // Stroke weight tracks pressure so a downpour's streaks are thicker, not just denser.
+  const pressure = state.cloud.rainPressure;
+  const baseLife = 0.6;
+  const dotR = Math.max(1, state.bounds.h * (0.0024 + 0.0012 * pressure));
+  const lineW = Math.max(1.2, state.bounds.h * (0.0036 + 0.0024 * pressure));
   for (const p of state.particles) {
-    ctx.globalAlpha = Math.max(0, p.life / 0.6);
-    ctx.strokeStyle = '#5b86c2';
-    ctx.lineWidth = Math.max(1.4, state.bounds.h * 0.0045);
+    const life01 = Math.max(0, p.life / baseLife);
+    ctx.globalAlpha = life01 * (0.7 + 0.3 * pressure);
+    ctx.strokeStyle = pressure > 0.7 ? '#4a74b0' : '#5b86c2';
+    ctx.lineWidth = lineW;
     ctx.beginPath();
     ctx.moveTo(p.pos.x, p.pos.y);
     ctx.lineTo(p.pos.x - p.vel.x * 0.02, p.pos.y - p.vel.y * 0.05);
@@ -746,6 +840,57 @@ function drawRain(ctx: CanvasRenderingContext2D, state: GameState): void {
     ctx.beginPath();
     ctx.arc(p.pos.x, p.pos.y, dotR, 0, Math.PI * 2);
     ctx.fill();
+  }
+  ctx.restore();
+}
+
+/**
+ * Rainbow — pure optical causality, no caption. Drawn only when:
+ *   - every field has bloomed (the level just resolved or is resolving), AND
+ *   - the sun is up (intensity high enough to cast colour), AND
+ *   - there are still residual rain particles in the air (or rain just ended).
+ * That is the real-world recipe: sun + raindrops in the air → rainbow. Sitting
+ * it behind the cloud / in front of the sky keeps it a reward, not a UI badge.
+ */
+function drawRainbow(ctx: CanvasRenderingContext2D, state: GameState): void {
+  const allBloomed = state.fields.length > 0 && state.fields.every((f) => f.state === 'bloom');
+  if (!allBloomed) return;
+  if (state.sun.intensity < 0.45) return;
+  // Residual rain in the air, OR the level just completed while it was raining
+  // (particles may already have expired by the result frame). Either way the
+  // optical story holds: you just made it rain under a bright sun.
+  const hasRainAir = state.particles.length > 4 || state.phase === 'complete';
+  if (!hasRainAir) return;
+
+  const { h } = state.bounds;
+  // Arc sits over the fields, not the sea — that's where the water landed.
+  let fx = 0;
+  for (const f of state.fields) fx += f.pos.x;
+  fx /= state.fields.length;
+  const cy = h * 0.62;
+  const r0 = h * 0.42;
+  const bands: [string, number][] = [
+    ['rgba(255, 80, 80, 0.22)', 0],
+    ['rgba(255, 170, 50, 0.2)', 1],
+    ['rgba(255, 230, 60, 0.18)', 2],
+    ['rgba(90, 210, 100, 0.16)', 3],
+    ['rgba(70, 160, 255, 0.15)', 4],
+    ['rgba(150, 100, 230, 0.13)', 5],
+  ];
+  ctx.save();
+  ctx.lineCap = 'butt';
+  // Fade in over the first ~1.2s of bloom so it arrives as a reward, not a flash.
+  const minBloom = Math.min(...state.fields.map((f) => f.bloom01));
+  const appear = Math.max(0, Math.min(1, (minBloom - 0.15) / 0.55));
+  ctx.globalAlpha = 0.85 * appear * (0.55 + 0.45 * state.sun.intensity);
+  for (const [color, i] of bands) {
+    const rr = r0 - i * h * 0.012;
+    ctx.strokeStyle = color;
+    ctx.lineWidth = h * 0.011;
+    ctx.beginPath();
+    // Upper semicircle, gently biased toward the field cluster.
+    ctx.arc(fx, cy, rr, Math.PI * 1.08, Math.PI * 1.92);
+    ctx.stroke();
   }
   ctx.restore();
 }
@@ -981,6 +1126,9 @@ export function createRender(): RenderModule {
     for (const m of state.mountains) drawMountain(ctx, m);
     const windStrength = Math.max(-1, Math.min(1, (state.wind.baseX + state.wind.gustX) / 60));
     for (const f of state.fields) drawField(ctx, f, state.stats.elapsedMs, windStrength);
+    // Rainbow sits behind obstacles/cloud but in front of the land — a sky
+    // phenomenon, not a UI badge on top of everything.
+    drawRainbow(ctx, state);
     drawWindHint(ctx, state);
     for (const t of state.thermals) drawThermal(ctx, t, state.stats.elapsedMs, state.sun.intensity);
     for (const c of state.coldFronts) drawColdFront(ctx, c, state.stats.elapsedMs);

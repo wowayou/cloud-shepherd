@@ -107,10 +107,38 @@ const MOUNTAIN_SAFE_MARGIN_FRAC = 0.03;
 const OVERWATER_DRAIN_RATE = 7; // water/sec a flooded field drains back toward its cap
 const BLOOM_EASE_PER_SEC = 2.4; // bloom01 animation speed once a field locks in
 
+// Particle spawn cadence at pressure=0 (drizzle). Higher pressure shortens
+// the interval so a downpour looks denser without changing the rate formula.
 const PARTICLE_INTERVAL_MS = 90;
-const MAX_PARTICLES = 40;
+// Performance headroom measured in round 8: 1000 soft particles/frame cost
+// ~1% of a 16.7ms frame. 220 is a deliberate ~5× bump from 40 that makes
+// downpours feel wet without approaching the budget. Still far under the
+// design-doc's "800" aspiration — that number needs splash + vapor layers
+// that don't exist yet, not just a higher rain cap.
+const MAX_PARTICLES = 220;
 const PARTICLE_GRAVITY = 260;
 const PARTICLE_LIFE_S = 0.6;
+
+/**
+ * Map a 0..1 rain pressure onto a rate multiplier.
+ *   0.00 → ×0.30  (mist; barely waters)
+ *   0.58 → ×1.00  (the calibrated default — autopilot / rainHeld-only callers)
+ *   1.00 → ×1.50  (downpour; faster, easier to overwater)
+ * Chosen so `0.3 + p*1.2` hits exactly 1.0 at p≈0.583, matching the design
+ * doc's light/heavy range without silently rescaling any level whose tests
+ * and star gates were built against the bare `rainRate`.
+ */
+function rainRateMul(pressure: number): number {
+  const p = Math.max(0, Math.min(1, pressure));
+  return 0.3 + p * 1.2;
+}
+
+/** Default pressure when a caller only sets `rainHeld: true` (tests, autopilot).
+ *  Exactly (1.0 - 0.3) / 1.2 so rateMul is 1.0 and existing calibrations keep
+ *  their meaning — a rounded 0.583 was 0.9996 and silently under-watered by
+ *  ~0.04 units over a 40-unit pour, which the bloom epsilon masked as a pass
+ *  on state but failed a moisture >= targetMin assertion. */
+const DEFAULT_RAIN_PRESSURE = (1.0 - 0.3) / 1.2;
 
 function mulberry32(seed: number): () => number {
   let a = seed >>> 0;
@@ -181,6 +209,7 @@ function buildInitialState(level: LevelRuntime): GameState {
     water: 0,
     maxWater: params.cloudMaxWater,
     raining: false,
+    rainPressure: 0,
     chilled: false,
     thawMs: 0,
   };
@@ -435,11 +464,20 @@ export function createSim(): SimModule {
     // rain
     const wasRaining = state.cloud.raining;
     state.cloud.raining = intent.rainHeld && state.cloud.water > 0 && !state.cloud.chilled;
+    // Resolve pressure: player input supplies a 0..1 ramp; callers that only
+    // flip rainHeld (tests, autopilot) get the mid-strength default so their
+    // calibrated rainRate stays rate×1.0. Clamped here, never trusted raw.
+    const pressure = state.cloud.raining
+      ? Math.max(0, Math.min(1, intent.rainPressure ?? DEFAULT_RAIN_PRESSURE))
+      : 0;
+    state.cloud.rainPressure = pressure;
     if (state.cloud.raining && !wasRaining) events.push({ type: 'rainStart' });
     if (!state.cloud.raining && wasRaining) events.push({ type: 'rainStop' });
+    if (state.cloud.raining) events.push({ type: 'rainPressure', pressure });
 
     if (state.cloud.raining) {
-      const amt = Math.min(params.rainRate * dt, state.cloud.water);
+      const rateMul = rainRateMul(pressure);
+      const amt = Math.min(params.rainRate * rateMul * dt, state.cloud.water);
       state.cloud.water -= amt;
       state.stats.waterRained += amt;
       const field = findFieldUnderCloud(state.fields, state.cloud.pos, worldH);
@@ -449,13 +487,20 @@ export function createSim(): SimModule {
         state.stats.waterWasted += amt;
       }
 
+      // Density tracks pressure: drizzle spawns sparsely, downpour fills the
+      // air. Interval scales 1.6× (light) → 0.45× (heavy) of the base 90ms.
+      const interval = PARTICLE_INTERVAL_MS * (1.6 - 1.15 * pressure);
+      // Wider spray + faster fall at high pressure so the downpour *looks*
+      // like one, not just denser dots of the same drizzle.
+      const sprayW = worldH * (0.022 + 0.04 * pressure);
+      const fallSpeed = 30 + 50 * pressure;
       rainAccumMs += dtMs;
-      while (rainAccumMs >= PARTICLE_INTERVAL_MS) {
-        rainAccumMs -= PARTICLE_INTERVAL_MS;
+      while (rainAccumMs >= interval) {
+        rainAccumMs -= interval;
         const particle: RainParticle = {
-          pos: { x: state.cloud.pos.x + (rng() - 0.5) * worldH * 0.03, y: state.cloud.pos.y },
-          vel: { x: (rng() - 0.5) * 10, y: 40 },
-          life: PARTICLE_LIFE_S,
+          pos: { x: state.cloud.pos.x + (rng() - 0.5) * sprayW, y: state.cloud.pos.y },
+          vel: { x: (rng() - 0.5) * (8 + 18 * pressure), y: fallSpeed },
+          life: PARTICLE_LIFE_S * (0.85 + 0.3 * pressure),
         };
         state.particles.push(particle);
         if (state.particles.length > MAX_PARTICLES) state.particles.shift();
@@ -486,6 +531,7 @@ export function createSim(): SimModule {
       // plays on into the result screen and never stops.
       if (state.cloud.raining) {
         state.cloud.raining = false;
+        state.cloud.rainPressure = 0;
         events.push({ type: 'rainStop' });
       }
       state.phase = 'complete';

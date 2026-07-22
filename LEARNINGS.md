@@ -154,6 +154,51 @@ energy surviving a highpass at ~500Hz to approximate a small speaker), not by
 reasoning about gain multipliers. An OfflineAudioContext harness in headless
 Chromium takes minutes to write and catches this class every time.
 
+## Design scope / ceiling-raise plans
+
+**2026-07-22 — A 12-week ceiling-raise doc is a diagnosis, not a build order.**
+A thorough design document correctly identified that Cloud Shepherd's verb is
+thin (drag + binary rain), the particle budget is almost unused, and the
+meta-game is stars + fact cards. It then proposed hydrology, cloud split,
+seasons, eco-dex, music layers, cosmetics, daily challenges, sandbox, and a
+32-level chapter plan. Most of that is *good design thinking* and *wrong
+next step*.
+
+What we actually shipped from it (round 9): continuous rain intensity via
+hold-duration, pressure-scaled particles/audio/face, a sun+rain rainbow.
+What we cut, and why it was the right cut:
+
+| Proposed | Why not now |
+|----------|-------------|
+| Force-touch / second-finger rain | Breaks 6yo simplest path + device universality |
+| Cloud split (dual control) | Turns one-verb game into multi-entity RTS on touch |
+| Hydrology CA / rivers / snow | Multiplies tuning surface before the rain *verb* has depth |
+| Music L1–4 | Real craft; project deliberately rain-only after playtest |
+| Eco-dex / cosmetics / daily / sandbox | Meta content; zero effect on "drag feels thin" |
+| 32-level chapter plan | Don't design 16 more levels until the verb they exercise is deeper |
+
+Transferable: when a design doc arrives as a multi-phase roadmap, **optimize
+the first shippable slice against the project's redlines before writing
+code**. The highest-leverage move is usually deepening the existing verb
+(here: binary rain → continuous pressure) so every later feature inherits a
+richer foundation — not bolting on parallel systems. Also: any continuous
+axis that tests/autopilot don't supply must default to the *calibrated*
+midpoint (here: pressure that yields rate×1.0), or star gates silently
+rescale.
+
+**2026-07-22 — Optional fields beat migration churn for additive input.**
+Adding `rainPressure?: number` to `InputIntent` (optional) let every
+existing `rainHeld: true` call site — tests, autopilot, anything that
+constructs intents by hand — keep working with zero edits, while the Sim
+resolved the missing value to the mid-strength default. Required fields
+would have forced a repo-wide touch for a change that is semantically
+"same as before when unspecified".
+
+Transferable: when extending a hot path that many pure-data constructors
+build by hand (test fixtures, bots, replays), prefer optional + documented
+default over a required field + migration, as long as the default preserves
+prior calibrated meaning.
+
 ## Teaching through mechanics
 
 **2026-07-20/21 — If the lesson needs a caption, the mechanic isn't teaching

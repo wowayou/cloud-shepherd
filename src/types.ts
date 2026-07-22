@@ -280,6 +280,12 @@ export interface AudioModule {
   play(e: SimEvent | UiSound): void;
   setMuted(m: boolean): void;
   isMuted(): boolean;
+  /**
+   * Keep a soft ambient pad alive while playing; pass intensity 0..1 (sun) to
+   * recolour it, or null / stop to fade out. Rain remains the primary loop —
+   * this is background only (round 13).
+   */
+  setAmbient?(intensity: number | null): void;
 }
 
 // ————————————————————————————————————————————————————————————
@@ -372,11 +378,19 @@ export interface ProfileClear {
   clearedHard: boolean;
 }
 
+/** Species keys for the eco-dex (round 13). Pure collection — no stats. */
+export type EcoSpecies = 'butterfly' | 'bee' | 'flower';
+
 export interface Profile {
   id: string;
   name: string;
   colorId: number;
   clears: Record<number, ProfileClear>;
+  /**
+   * Eco-dex unlocks. Written when a field blooms (flower) or when eco life
+   * appears after bloom (butterfly/bee). Never gates progress — pure meta.
+   */
+  ecoDex?: EcoSpecies[];
 }
 
 export interface ProgressStore {
@@ -384,6 +398,8 @@ export interface ProgressStore {
   createProfile(name: string, colorId: number): Profile;
   getProfile(id: string): Profile | undefined;
   recordClear(profileId: string, levelId: number, tier: Tier, stars: number): void;
+  /** Unlock eco-dex species for a profile (idempotent, order-preserving). */
+  unlockEco(profileId: string, species: EcoSpecies[]): void;
 }
 
 export interface LevelsModule {
@@ -407,7 +423,7 @@ export interface InputModule {
 // Module ⑥ UI shell (DOM overlay, lives in #ui-root)
 // ————————————————————————————————————————————————————————————
 
-export type Scene = 'profile' | 'menu' | 'levelselect' | 'playing' | 'result';
+export type Scene = 'profile' | 'menu' | 'levelselect' | 'playing' | 'result' | 'ecodex';
 
 export interface UiCallbacks {
   onSelectProfile(id: string): void;
@@ -422,6 +438,8 @@ export interface UiCallbacks {
   /** The on-screen ☔ button was pressed/released (an alternate rain trigger
    *  alongside Input's own "hold still over a field" heuristic). */
   onRainHold(held: boolean): void;
+  /** Open the eco-dex for the current profile (level-select / menu). */
+  onOpenEcoDex?(): void;
 }
 
 /** Everything the result screen needs to explain *why* the player got N stars. */

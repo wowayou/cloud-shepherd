@@ -65,6 +65,13 @@ export function createAudio(): AudioModule {
   // Last pressure we applied to the live rain loop; used so setRainPressure can
   // no-op when nothing changed and avoid stampeding the AudioParam schedule.
   let rainPressureApplied = -1;
+  // Ambient pad (round 13): two detuned sines under a slow LFO, very quiet so
+  // rain remains the primary loop. Intensity recolors the root pitch.
+  let ambientOscA: OscillatorNode | null = null;
+  let ambientOscB: OscillatorNode | null = null;
+  let ambientGain: GainNode | null = null;
+  let ambientLfo: OscillatorNode | null = null;
+  let ambientIntensity = -1;
   const lastPlayedAt: Partial<Record<string, number>> = {};
 
   function ensureCtx(): AudioContext | null {
@@ -503,6 +510,74 @@ export function createAudio(): AudioModule {
     }
   }
 
+  function setAmbient(intensity: number | null): void {
+    if (intensity === null || intensity <= 0) {
+      if (ambientGain && ctx) {
+        const t = ctx.currentTime;
+        ambientGain.gain.cancelScheduledValues(t);
+        ambientGain.gain.setValueAtTime(ambientGain.gain.value, t);
+        ambientGain.gain.linearRampToValueAtTime(0, t + 0.4);
+      }
+      // Tear down after fade so we don't leak nodes across levels.
+      if (ambientOscA) {
+        try {
+          ambientOscA.stop(ctx ? ctx.currentTime + 0.45 : 0);
+          ambientOscB?.stop(ctx ? ctx.currentTime + 0.45 : 0);
+          ambientLfo?.stop(ctx ? ctx.currentTime + 0.45 : 0);
+        } catch {
+          /* already stopped */
+        }
+      }
+      ambientOscA = null;
+      ambientOscB = null;
+      ambientGain = null;
+      ambientLfo = null;
+      ambientIntensity = -1;
+      return;
+    }
+    const audioCtx = ensureCtx();
+    if (!audioCtx || !master) return;
+    const p = Math.max(0, Math.min(1, intensity));
+    // Root drifts dawn→noon→dusk: Am-ish (220) → C (261) → F (174) — soft, never bright.
+    const root = p < 0.5
+      ? 220 + (261.63 - 220) * (p / 0.5)
+      : 261.63 + (174.61 - 261.63) * ((p - 0.5) / 0.5);
+    if (!ambientOscA || !ambientGain) {
+      const g = audioCtx.createGain();
+      g.gain.value = 0;
+      const a = audioCtx.createOscillator();
+      a.type = 'sine';
+      a.frequency.value = root;
+      const b = audioCtx.createOscillator();
+      b.type = 'sine';
+      b.frequency.value = root * 1.498; // perfect fifth, slightly detuned below
+      b.detune.value = -6;
+      const lfo = audioCtx.createOscillator();
+      lfo.type = 'sine';
+      lfo.frequency.value = 0.07;
+      const lfoG = audioCtx.createGain();
+      lfoG.gain.value = 0.012; // very shallow gain wobble
+      lfo.connect(lfoG);
+      lfoG.connect(g.gain);
+      a.connect(g);
+      b.connect(g);
+      g.connect(master);
+      a.start();
+      b.start();
+      lfo.start();
+      ambientOscA = a;
+      ambientOscB = b;
+      ambientGain = g;
+      ambientLfo = lfo;
+      g.gain.linearRampToValueAtTime(0.035, audioCtx.currentTime + 0.8);
+    } else if (Math.abs(p - ambientIntensity) > 0.03) {
+      const t = audioCtx.currentTime;
+      ambientOscA.frequency.linearRampToValueAtTime(root, t + 0.6);
+      ambientOscB?.frequency.linearRampToValueAtTime(root * 1.498, t + 0.6);
+    }
+    ambientIntensity = p;
+  }
+
   function setMuted(m: boolean): void {
     muted = m;
     if (master && ctx) {
@@ -514,5 +589,5 @@ export function createAudio(): AudioModule {
     return muted;
   }
 
-  return { play, setMuted, isMuted };
+  return { play, setMuted, isMuted, setAmbient };
 }

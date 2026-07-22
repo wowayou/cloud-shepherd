@@ -1,13 +1,26 @@
-import type { Profile, ProfileClear, ProgressStore, Tier } from '../types.ts';
+import type { EcoSpecies, Profile, ProfileClear, ProgressStore, Tier } from '../types.ts';
 
-const STORAGE_KEY = 'cloud-shepherd:profiles:v1';
+// v2 adds optional ecoDex[]; old v1 blobs still load (ecoDex defaults empty).
+const STORAGE_KEY = 'cloud-shepherd:profiles:v2';
+const LEGACY_KEY = 'cloud-shepherd:profiles:v1';
 
 function loadAll(): Profile[] {
   try {
-    const raw = localStorage.getItem(STORAGE_KEY);
+    let raw = localStorage.getItem(STORAGE_KEY);
+    if (!raw) {
+      // One-time migrate from v1 so existing stars aren't wiped by the eco-dex bump.
+      raw = localStorage.getItem(LEGACY_KEY);
+      if (raw) {
+        localStorage.setItem(STORAGE_KEY, raw);
+      }
+    }
     if (!raw) return [];
     const parsed = JSON.parse(raw);
-    return Array.isArray(parsed) ? parsed : [];
+    if (!Array.isArray(parsed)) return [];
+    return parsed.map((p: Profile) => ({
+      ...p,
+      ecoDex: Array.isArray(p.ecoDex) ? p.ecoDex : [],
+    }));
   } catch {
     return [];
   }
@@ -35,7 +48,7 @@ export function createProgressStore(): ProgressStore {
 
   function createProfile(name: string, colorId: number): Profile {
     const profiles = loadAll();
-    const profile: Profile = { id: makeId(), name, colorId, clears: {} };
+    const profile: Profile = { id: makeId(), name, colorId, clears: {}, ecoDex: [] };
     profiles.push(profile);
     saveAll(profiles);
     return profile;
@@ -63,5 +76,25 @@ export function createProgressStore(): ProgressStore {
     saveAll(profiles);
   }
 
-  return { listProfiles, createProfile, getProfile, recordClear };
+  function unlockEco(profileId: string, species: EcoSpecies[]): void {
+    if (species.length === 0) return;
+    const profiles = loadAll();
+    const profile = profiles.find((p) => p.id === profileId);
+    if (!profile) return;
+    const have = new Set(profile.ecoDex ?? []);
+    let changed = false;
+    for (const s of species) {
+      if (!have.has(s)) {
+        have.add(s);
+        changed = true;
+      }
+    }
+    if (!changed) return;
+    // Stable display order for the three known species.
+    const order: EcoSpecies[] = ['flower', 'butterfly', 'bee'];
+    profile.ecoDex = order.filter((s) => have.has(s));
+    saveAll(profiles);
+  }
+
+  return { listProfiles, createProfile, getProfile, recordClear, unlockEco };
 }

@@ -161,10 +161,20 @@ export function bootGame(canvas: HTMLCanvasElement, uiRoot: HTMLElement): () => 
   function handleSimEvents(events: SimEvent[]): void {
     for (const e of events) {
       audio.play(e);
+      // Eco-dex unlocks on bloom: flower always, butterfly always, bee on
+      // odd-id fields (matches the pure-render eco in render/index.ts).
+      if (e.type === 'fieldBloom' && currentProfile) {
+        const species: import('../types.ts').EcoSpecies[] = ['flower', 'butterfly'];
+        if (e.fieldId % 2 === 1) species.push('bee');
+        levels.progress.unlockEco(currentProfile.id, species);
+        // Refresh cached profile so the dex button badge stays honest.
+        currentProfile = levels.progress.getProfile(currentProfile.id) ?? currentProfile;
+      }
       if (e.type === 'levelComplete' && currentProfile && currentLevelDef) {
         const stars = levels.evalStars(currentLevelDef, currentTier, e.stats);
         levels.progress.recordClear(currentProfile.id, currentLevelDef.id, currentTier, stars);
         for (let i = 0; i < stars; i++) audio.play({ type: 'star', index: i });
+        audio.setAmbient?.(null);
 
         const factKey = currentLevelDef.factCardKey as FactCardKey | undefined;
         scene = 'result';
@@ -197,6 +207,7 @@ export function bootGame(canvas: HTMLCanvasElement, uiRoot: HTMLElement): () => 
     onPause() {
       paused = true;
       stopRainSound();
+      audio.setAmbient?.(null);
     },
     onResume() {
       paused = false;
@@ -218,6 +229,7 @@ export function bootGame(canvas: HTMLCanvasElement, uiRoot: HTMLElement): () => 
     onQuit() {
       audio.play({ type: 'uiTap' });
       stopRainSound();
+      audio.setAmbient?.(null);
       if (currentProfile) goToLevelSelect(currentProfile);
     },
     onToggleMute() {
@@ -225,6 +237,14 @@ export function bootGame(canvas: HTMLCanvasElement, uiRoot: HTMLElement): () => 
     },
     onRainHold(held) {
       input.setRainButton(held);
+    },
+    onOpenEcoDex() {
+      audio.play({ type: 'uiTap' });
+      if (!currentProfile) return;
+      const fresh = levels.progress.getProfile(currentProfile.id) ?? currentProfile;
+      currentProfile = fresh;
+      scene = 'ecodex';
+      ui.setScene('ecodex', { profile: fresh });
     },
   };
 
@@ -254,6 +274,8 @@ export function bootGame(canvas: HTMLCanvasElement, uiRoot: HTMLElement): () => 
       const intent: InputIntent = input.read(gameState);
       const events = sim.step(gameState, intent, dtMs);
       if (events.length) handleSimEvents(events);
+      // Ambient pad tracks the sun — only while actively playing.
+      audio.setAmbient?.(gameState.sun.intensity);
     },
     render() {
       if (!ctx) return; // no 2D canvas support (e.g. a non-browser test env)

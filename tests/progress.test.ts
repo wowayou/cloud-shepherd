@@ -49,4 +49,20 @@ describe('progress store: double profiles', () => {
     expect(reloaded?.name).toBe('小狐狸');
     expect(reloaded?.clears[0]?.clearedEasy).toBe(true);
   });
+
+  it('unlocks eco-dex species idempotently and in stable order', () => {
+    const store = createProgressStore();
+    const profile = store.createProfile('小狐狸', 0);
+    expect(store.getProfile(profile.id)?.ecoDex).toEqual([]);
+
+    store.unlockEco(profile.id, ['bee', 'flower']);
+    expect(store.getProfile(profile.id)?.ecoDex).toEqual(['flower', 'bee']);
+
+    store.unlockEco(profile.id, ['flower', 'butterfly']);
+    expect(store.getProfile(profile.id)?.ecoDex).toEqual(['flower', 'butterfly', 'bee']);
+
+    // reload preserves unlocks
+    const reloaded = createProgressStore().getProfile(profile.id);
+    expect(reloaded?.ecoDex).toEqual(['flower', 'butterfly', 'bee']);
+  });
 });

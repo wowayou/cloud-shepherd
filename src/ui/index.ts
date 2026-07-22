@@ -1,4 +1,15 @@
-import type { Field, GameState, LevelDef, Profile, Scene, StarBreakdown, Tier, UiCallbacks, UiModule } from '../types.ts';
+import type {
+  EcoSpecies,
+  Field,
+  GameState,
+  LevelDef,
+  Profile,
+  Scene,
+  StarBreakdown,
+  Tier,
+  UiCallbacks,
+  UiModule,
+} from '../types.ts';
 import { STRINGS, type FactCardKey } from '../strings.ts';
 
 const AVATARS: { emoji: string; bg: string }[] = [
@@ -269,8 +280,59 @@ export function createUi(): UiModule {
     levelGridEl = el('div', { className: 'cs-grid' });
     screen.append(levelGridEl);
     const switchBtn = el('button', { className: 'cs-btn', text: STRINGS.menu.switchProfile, onClick: () => setScene('profile') });
-    screen.append(switchBtn);
+    const dexBtn = el('button', {
+      className: 'cs-btn',
+      text: STRINGS.menu.ecoDex,
+      onClick: () => callbacks.onOpenEcoDex?.(),
+    });
+    screen.append(switchBtn, dexBtn);
     return screen;
+  }
+
+  function buildEcoDexScreen(): HTMLElement {
+    const screen = el('div', { className: 'cs-screen' });
+    screen.append(el('h1', { className: 'cs-title', text: STRINGS.ecoDex.title }));
+    const list = el('div', { className: 'cs-grid' });
+    list.dataset.role = 'ecodex-list';
+    screen.append(list);
+    const back = el('button', {
+      className: 'cs-btn',
+      text: STRINGS.ecoDex.back,
+      onClick: () => {
+        if (currentProfileId) callbacks.onSelectProfile(currentProfileId);
+      },
+    });
+    screen.append(back);
+    return screen;
+  }
+
+  function renderEcoDex(profile: Profile): void {
+    const screen = screens.ecodex;
+    if (!screen) return;
+    const list = screen.querySelector('[data-role="ecodex-list"]') as HTMLElement | null;
+    if (!list) return;
+    list.innerHTML = '';
+    const unlocked = new Set(profile.ecoDex ?? []);
+    const entries: { key: EcoSpecies; emoji: string; name: string; fact: string }[] = [
+      { key: 'flower', emoji: '🌸', name: STRINGS.ecoDex.flower.name, fact: STRINGS.ecoDex.flower.fact },
+      { key: 'butterfly', emoji: '🦋', name: STRINGS.ecoDex.butterfly.name, fact: STRINGS.ecoDex.butterfly.fact },
+      { key: 'bee', emoji: '🐝', name: STRINGS.ecoDex.bee.name, fact: STRINGS.ecoDex.bee.fact },
+    ];
+    let any = false;
+    for (const e of entries) {
+      const card = el('div', { className: 'cs-level-card' });
+      if (unlocked.has(e.key)) {
+        any = true;
+        card.append(el('div', { className: 'cs-level-name', text: `${e.emoji} ${e.name}` }));
+        card.append(el('div', { text: e.fact }));
+      } else {
+        card.append(el('div', { className: 'cs-level-name', text: `❔ ${STRINGS.ecoDex.locked}` }));
+      }
+      list.append(card);
+    }
+    if (!any) {
+      list.append(el('div', { className: 'cs-pill', text: STRINGS.ecoDex.empty }));
+    }
   }
 
   function buildPlayingScreen(): HTMLElement {
@@ -439,6 +501,10 @@ export function createUi(): UiModule {
       const d = data as { profile: Profile; levels: LevelDef[] };
       currentProfileId = d.profile.id;
       renderLevelSelect(d.profile, d.levels);
+    } else if (scene === 'ecodex') {
+      const d = data as { profile: Profile };
+      currentProfileId = d.profile.id;
+      renderEcoDex(d.profile);
     } else if (scene === 'playing') {
       const d = data as { level: LevelDef; tier: Tier };
       hasTutorial = Boolean(d.level.tutorial?.length);
@@ -597,6 +663,7 @@ export function createUi(): UiModule {
     screens.profile = buildProfileScreen();
     screens.menu = buildMenuScreen();
     screens.levelselect = buildLevelSelectScreen();
+    screens.ecodex = buildEcoDexScreen();
     screens.playing = buildPlayingScreen();
     screens.result = buildResultScreen();
 

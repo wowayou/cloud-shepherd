@@ -19,6 +19,17 @@ export const STRINGS = {
     play: '开始游戏',
     levelSelect: '选关卡',
     switchProfile: '换个人玩',
+    ecoDex: '生态图鉴',
+  },
+
+  ecoDex: {
+    title: '生态图鉴',
+    empty: '浇开花田，小生命会来做客哦',
+    back: '返回',
+    flower: { name: '小花', fact: '雨水浇透了，种子就发芽开花。' },
+    butterfly: { name: '蝴蝶', fact: '花开了，蝴蝶就会飞来采蜜。' },
+    bee: { name: '小蜜蜂', fact: '蜜蜂帮花传花粉，田地更热闹。' },
+    locked: '？？？',
   },
 
   levelSelect: {

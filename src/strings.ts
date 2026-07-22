@@ -20,6 +20,7 @@ export const STRINGS = {
     levelSelect: '选关卡',
     switchProfile: '换个人玩',
     ecoDex: '生态图鉴',
+    daily: '今日天气',
   },
 
   ecoDex: {
@@ -90,6 +91,7 @@ export const STRINGS = {
     snow: '飞得高，雨会变成雪积在山顶——太阳暖了再融化流下山',
     summer: '夏天太阳更厉害，水蒸气升得更快——热气流也会更活跃',
     autumn: '秋雨绵绵，山坡上的水会慢慢流到田里',
+    daily: '今天的天气不一样——完成它就算过关啦',
   },
 
   tutorial: {

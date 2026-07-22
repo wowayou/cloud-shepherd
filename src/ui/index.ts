@@ -285,7 +285,12 @@ export function createUi(): UiModule {
       text: STRINGS.menu.ecoDex,
       onClick: () => callbacks.onOpenEcoDex?.(),
     });
-    screen.append(switchBtn, dexBtn);
+    const dailyBtn = el('button', {
+      className: 'cs-btn primary',
+      text: `🌤 ${STRINGS.menu.daily}`,
+      onClick: () => callbacks.onPlayDaily?.(),
+    });
+    screen.append(dailyBtn, switchBtn, dexBtn);
     return screen;
   }
 

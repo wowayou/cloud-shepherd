@@ -212,6 +212,19 @@ anchoring drink target on the nearest sea midpoint to the current field.
 Same class of bug as the round-8 drink/water hysteresis: the tool's own
 decision rule, not the game.
 
+## Procedural content
+
+**2026-07-23 — Daily challenges without a server.** A date integer
+(`YYYYMMDD`) into mulberry32 is enough for "everyone playing today sees the
+same layout" on a single device family — no backend, no seed exchange. Keep
+the generator inside the same constraints as hand-authored levels (sea on
+left, fields on land, generous gates, optional obstacles only) and run the
+*same* autopilot completability suite over several seeds. Reserved high id
+(900) avoids colliding with campaign progress keys.
+
+Transferable: procedural daily content is a seed function + the project's
+existing invariant tests, not a new mode architecture.
+
 ## Design scope / ceiling-raise plans
 
 **2026-07-22 — A 12-week ceiling-raise doc is a diagnosis, not a build order.**

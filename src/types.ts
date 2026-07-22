@@ -444,6 +444,8 @@ export interface UiCallbacks {
   onRainHold(held: boolean): void;
   /** Open the eco-dex for the current profile (level-select / menu). */
   onOpenEcoDex?(): void;
+  /** Start today's date-seeded weather challenge. */
+  onPlayDaily?(): void;
 }
 
 /** Everything the result screen needs to explain *why* the player got N stars. */

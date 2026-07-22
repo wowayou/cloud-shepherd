@@ -1,8 +1,10 @@
 import type { LevelDef, LevelsModule, SimStats, Tier } from '../types.ts';
 import { LEVELS } from './data.ts';
 import { createProgressStore } from './progress.ts';
+import { buildDailyLevel } from './daily.ts';
 
 export { LEVELS } from './data.ts';
+export { buildDailyLevel, buildDailyLevelFromSeed, dateSeed } from './daily.ts';
 
 /**
  * Easy tier never applies star pressure — finishing a level always awards
@@ -23,10 +25,20 @@ export function evalStars(level: LevelDef, tier: Tier, stats: SimStats): number 
 
 export function createLevels(): LevelsModule {
   const byIdMap = new Map(LEVELS.map((l) => [l.id, l]));
+  // Daily is rebuilt on each byId(900) so midnight rollover is free without a timer.
+  let dailyCache: { key: string; level: LevelDef } | null = null;
+
+  function daily(): LevelDef {
+    const key = new Date().toDateString();
+    if (!dailyCache || dailyCache.key !== key) {
+      dailyCache = { key, level: buildDailyLevel() };
+    }
+    return dailyCache.level;
+  }
 
   return {
     all: () => LEVELS,
-    byId: (id: number) => byIdMap.get(id),
+    byId: (id: number) => (id === 900 ? daily() : byIdMap.get(id)),
     evalStars,
     progress: createProgressStore(),
   };

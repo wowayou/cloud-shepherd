@@ -222,6 +222,11 @@ export function bootGame(canvas: HTMLCanvasElement, uiRoot: HTMLElement): () => 
     onNext() {
       audio.play({ type: 'uiTap' });
       if (!currentLevelDef) return;
+      // Daily (id 900) has no "next" — return to the level list.
+      if (currentLevelDef.id === 900) {
+        if (currentProfile) goToLevelSelect(currentProfile);
+        return;
+      }
       const nextDef = levels.byId(currentLevelDef.id + 1);
       if (nextDef) startLevel(nextDef.id, currentTier);
       else if (currentProfile) goToLevelSelect(currentProfile);
@@ -245,6 +250,11 @@ export function bootGame(canvas: HTMLCanvasElement, uiRoot: HTMLElement): () => 
       currentProfile = fresh;
       scene = 'ecodex';
       ui.setScene('ecodex', { profile: fresh });
+    },
+    onPlayDaily() {
+      audio.play({ type: 'uiTap' });
+      // Daily always available — no campaign unlock gate (never-fail meta).
+      startLevel(900, currentTier);
     },
   };
 

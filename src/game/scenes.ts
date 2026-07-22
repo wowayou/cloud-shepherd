@@ -17,6 +17,7 @@ import { createLevels } from '../levels/index.ts';
 import { createInput } from '../input/index.ts';
 import { createAudio } from '../audio/index.ts';
 import { createUi, factCardText } from '../ui/index.ts';
+import { bootV2 } from '../v2/boot.ts';
 import { startLoop } from './loop.ts';
 
 const WORLD_H = 720;
@@ -42,6 +43,8 @@ export function bootGame(canvas: HTMLCanvasElement, uiRoot: HTMLElement): () => 
   let worldH = WORLD_H;
   let paused = false;
   let pendingResize = false;
+  /** Non-null while the V2 valley prototype owns the canvas. */
+  let stopV2: (() => void) | null = null;
 
   function computeViewport(): Viewport {
     const cssW = canvas.clientWidth || window.innerWidth || worldW;
@@ -256,6 +259,24 @@ export function bootGame(canvas: HTMLCanvasElement, uiRoot: HTMLElement): () => 
       // Daily always available — no campaign unlock gate (never-fail meta).
       startLevel(900, currentTier);
     },
+    onPlayV2() {
+      audio.play({ type: 'uiTap' });
+      stopRainSound();
+      audio.setAmbient?.(null);
+      // Pause campaign loop rendering by leaving scene off 'playing'.
+      scene = 'menu';
+      paused = true;
+      if (stopV2) {
+        stopV2();
+        stopV2 = null;
+      }
+      stopV2 = bootV2(canvas, uiRoot, () => {
+        stopV2 = null;
+        paused = false;
+        if (currentProfile) goToLevelSelect(currentProfile);
+        else goToProfileScene();
+      });
+    },
   };
 
   ui.mount(uiRoot, callbacks);
@@ -280,6 +301,8 @@ export function bootGame(canvas: HTMLCanvasElement, uiRoot: HTMLElement): () => 
 
   const stopLoop = startLoop({
     fixedUpdate(dtMs) {
+      // V2 owns its own rAF; campaign sim must stay idle while it's up.
+      if (stopV2) return;
       if (scene !== 'playing' || paused || !gameState) return;
       const intent: InputIntent = input.read(gameState);
       const events = sim.step(gameState, intent, dtMs);
@@ -288,6 +311,7 @@ export function bootGame(canvas: HTMLCanvasElement, uiRoot: HTMLElement): () => 
       audio.setAmbient?.(gameState.sun.intensity);
     },
     render() {
+      if (stopV2) return; // v2 draws itself
       if (!ctx) return; // no 2D canvas support (e.g. a non-browser test env)
       resizeCanvasBackingStore();
       if (pendingResize) {
@@ -312,6 +336,7 @@ export function bootGame(canvas: HTMLCanvasElement, uiRoot: HTMLElement): () => 
   return () => {
     window.removeEventListener('resize', onWindowResize);
     document.removeEventListener('visibilitychange', onVisibility);
+    if (stopV2) stopV2();
     stopLoop();
   };
 }

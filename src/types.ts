@@ -446,6 +446,8 @@ export interface UiCallbacks {
   onOpenEcoDex?(): void;
   /** Start today's date-seeded weather challenge. */
   onPlayDaily?(): void;
+  /** Boot the V2 valley weather-toy prototype (campaign frozen). */
+  onPlayV2?(): void;
 }
 
 /** Everything the result screen needs to explain *why* the player got N stars. */

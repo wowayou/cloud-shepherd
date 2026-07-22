@@ -21,6 +21,8 @@ export const STRINGS = {
     switchProfile: '换个人玩',
     ecoDex: '生态图鉴',
     daily: '今日天气',
+    /** V2 prototype entry — weather toy, not campaign. */
+    v2Try: '试玩新核心',
   },
 
   ecoDex: {

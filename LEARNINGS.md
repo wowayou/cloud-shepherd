@@ -12,6 +12,14 @@ what was reasoned. Prefer "we tried X, it cost Y" over "best practice is X".
 
 ## Product direction
 
+**2026-07-23 — Teachable ≠ replayable.** A loop can be fully discoverable
+("会摸到") and still fail the only bar that matters ("不想再来一把"). Shipping
+more systems on a thin verb makes the failure louder, not quieter. When that
+happens: freeze the campaign, write an explicit fun bar (solo is OK), and
+prototype a *different verb* in isolation — do not retune the dead loop.
+
+
+
 **2026-07-23 — Feature stacking is not playtesting.** After a solid core loop
 (drag cloud, drink, rain, bloom), we shipped rain pressure, multi-sea, runoff,
 snow, eco-dex, ambient pad, seasons, daily challenge, ground soaks, and energy

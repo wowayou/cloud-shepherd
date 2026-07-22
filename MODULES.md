@@ -2,6 +2,13 @@
 
 ## Where things stand
 
+**2026-07-23 — Core verdict: B.** Campaign v1 (drag-cloud logistics) is
+*teachable but not fun* (user: can figure it out, does not want another run).
+Direction **1+4 weather toy + valley guardian** is prototyped under `src/v2/`.
+**Fun bar:** see `FUN.md` — solo, "do I want one more run after ~3 min?".
+Entry: level-select → **✨ 试玩新核心**. v1 campaign is frozen for fun-evaluation.
+
+
 The v1 grey-box milestone turned into a **fully working game**, not just
 stubs: all 21 campaign levels (tutorial + 20, × easy/hard) are playable start to
 finish — drag the cloud, fight the wind, absorb over seas (single left

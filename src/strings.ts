@@ -76,6 +76,7 @@ export const STRINGS = {
     mixed: '风、热气流、飞鸟都来了，看准了再走',
     lake: '水在中间啦！围着湖转一圈给四面的田浇水',
     twoSeas: '两边都是海——就近喝水就好，不用跑回左边',
+    snow: '飞得高，雨会变成雪积在山顶——太阳暖了再融化流下山',
   },
 
   tutorial: {
@@ -107,6 +108,10 @@ export const STRINGS = {
     saveWater: {
       emoji: '💧',
       text: '地球上能喝的水其实很少，别让水白白浪费掉哦。',
+    },
+    snowMelt: {
+      emoji: '❄️',
+      text: '高处太冷，雨会冻成雪；太阳一暖，雪又化成水，流进田里。',
     },
   },
 

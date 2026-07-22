@@ -9,6 +9,8 @@ const THROTTLE_MS: Partial<Record<SimEvent['type'], number>> = {
   // Runoff fires every raining frame over a slope; keep the trickle as a soft
   // occasional "plink" rather than a machine-gun of notes.
   runoff: 280,
+  snowFall: 220,
+  snowMelt: 260,
 };
 
 // A small major-pentatonic-ish note set (Hz) reused across every event so
@@ -414,6 +416,15 @@ export function createAudio(): AudioModule {
           release: 0.06,
         });
         noiseBurst(900, { type: 'lowpass', q: 0.7, gain: 0.06, attack: 0.01, decay: 0.14 });
+        break;
+      case 'snowFall':
+        // Soft high "crunch" of flakes packing — quieter and brighter than rain.
+        noiseBurst(2800, { type: 'highpass', q: 0.6, gain: 0.05, attack: 0.004, decay: 0.1 });
+        tone(880, { type: 'sine', gain: 0.06, freqEnd: 660, glideTime: 0.05, attack: 0.004, decay: 0.08, release: 0.04 });
+        break;
+      case 'snowMelt':
+        // Low warm drip as ice turns back to water under the sun.
+        tone(320, { type: 'sine', gain: 0.08, freqEnd: 240, glideTime: 0.1, attack: 0.01, decay: 0.14, release: 0.08 });
         break;
       case 'birdHit':
         // A startled little squawk: a fast down-glide over a noise chirp. Kept

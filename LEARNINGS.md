@@ -156,6 +156,15 @@ Chromium takes minutes to write and catches this class every time.
 
 ## Hydrology (light)
 
+**2026-07-23 — Snow as deferred runoff, not a new water type.** Freezing rain
+into a pack that later melts into the *existing* runoff queue reuses one
+delivery path for two lessons (runoff + solid precipitation). Avoided a
+parallel "snow moisture" channel that would have needed its own waste rules
+and soft-lock cases. Melt gated on sun intensity keeps the causality chain
+(sun → phase change → water) visible without captions.
+
+
+
 **2026-07-23 — Runoff without a height field.** Full Cellular-Automata or
 particle-slope hydrology would teach more of the water cycle but multiplies
 tuning surface and soft-lock modes. The cheaper lesson that still *looks*

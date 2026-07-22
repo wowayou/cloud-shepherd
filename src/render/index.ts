@@ -349,6 +349,59 @@ function drawRunoff(ctx: CanvasRenderingContext2D, state: GameState): void {
   ctx.restore();
 }
 
+/** Soft snow cap size-scaled by pack amount; drawn after the mountain body. */
+function drawSnowPack(
+  ctx: CanvasRenderingContext2D,
+  m: Mountain,
+  amount: number,
+  timeMs: number,
+): void {
+  if (amount < 0.5) return;
+  // Cap grows with amount but saturates so a huge pack doesn't swallow the peak.
+  const cover = Math.min(1, amount / 40);
+  const H = m.height;
+  const capH = H * (0.12 + 0.28 * cover);
+  const capW = m.width * (0.35 + 0.25 * cover);
+  const cx = m.pos.x;
+  const cy = m.pos.y - H + capH * 0.15;
+  const sparkle = 0.5 + 0.5 * Math.sin(timeMs / 700 + m.pos.x * 0.01);
+  ctx.save();
+  ctx.fillStyle = `rgba(245, 250, 255, ${(0.75 + 0.2 * sparkle).toFixed(3)})`;
+  ctx.beginPath();
+  ctx.ellipse(cx, cy, capW / 2, capH / 2, 0, 0, Math.PI * 2);
+  ctx.fill();
+  // a couple of soft drifts lower on the peak
+  ctx.globalAlpha = 0.55 * cover;
+  ctx.beginPath();
+  ctx.ellipse(cx - capW * 0.25, cy + capH * 0.35, capW * 0.22, capH * 0.18, -0.3, 0, Math.PI * 2);
+  ctx.ellipse(cx + capW * 0.2, cy + capH * 0.4, capW * 0.18, capH * 0.14, 0.25, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.restore();
+}
+
+function drawSnowFlakes(ctx: CanvasRenderingContext2D, state: GameState): void {
+  // Falling flakes only while raining above the snow line — pure render cue.
+  if (!state.cloud.raining || state.snowLineY === null) return;
+  if (state.cloud.pos.y >= state.snowLineY) return;
+  const { h } = state.bounds;
+  const t = state.stats.elapsedMs / 1000;
+  const cx = state.cloud.pos.x;
+  const cy = state.cloud.pos.y;
+  ctx.save();
+  ctx.fillStyle = 'rgba(255,255,255,0.9)';
+  for (let i = 0; i < 10; i++) {
+    const seed = hash1(i * 11.3 + Math.floor(t * 2));
+    const x = cx + (seed - 0.5) * h * 0.12;
+    const y = cy + ((t * (20 + seed * 30) + seed * 80) % (h * 0.18));
+    const r = h * (0.003 + seed * 0.004);
+    ctx.globalAlpha = 0.5 + 0.4 * seed;
+    ctx.beginPath();
+    ctx.arc(x, y, r, 0, Math.PI * 2);
+    ctx.fill();
+  }
+  ctx.restore();
+}
+
 function drawMountain(ctx: CanvasRenderingContext2D, m: Mountain): void {
   const left = m.pos.x - m.width / 2;
   const right = m.pos.x + m.width / 2;
@@ -1316,8 +1369,14 @@ export function createRender(): RenderModule {
 
     drawSky(ctx, w, h, state.stats.elapsedMs, state.sun.intensity);
     drawGroundAndSea(ctx, state, state.stats.elapsedMs);
-    for (const m of state.mountains) drawMountain(ctx, m);
+    for (let mi = 0; mi < state.mountains.length; mi++) {
+      const m = state.mountains[mi];
+      drawMountain(ctx, m);
+      const pack = state.snow.find((s) => s.mountainId === mi);
+      if (pack) drawSnowPack(ctx, m, pack.amount, state.stats.elapsedMs);
+    }
     drawRunoff(ctx, state);
+    drawSnowFlakes(ctx, state);
     const windStrength = Math.max(-1, Math.min(1, (state.wind.baseX + state.wind.gustX) / 60));
     for (const f of state.fields) drawField(ctx, f, state.stats.elapsedMs, windStrength);
     // Rainbow sits behind obstacles/cloud but in front of the land — a sky

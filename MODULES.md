@@ -3,7 +3,7 @@
 ## Where things stand
 
 The v1 grey-box milestone turned into a **fully working game**, not just
-stubs: all 18 levels (tutorial + 17, × easy/hard) are playable start to
+stubs: all 19 levels (tutorial + 18, × easy/hard) are playable start to
 finish — drag the cloud, fight the wind, absorb over seas (single left
 strip, centre lake, or dual coast), rain on fields with continuous
 intensity, bloom (with eco butterflies), get scored, see a fact card,
@@ -11,7 +11,7 @@ progress to the next level. It has been manually verified end-to-end in a
 real Chromium browser (not just `npm test`/typecheck — see "the
 pointer-events bug" below for why that distinction matters).
 
-Rounds 1–11 are **done** — the table below is complete; there is no
+Rounds 1–12 are **done** — the table below is complete; there is no
 outstanding `dispatched`/`in review` work. The game deploys to GitHub
 Pages via `.github/workflows/deploy.yml` on every push to main. Wind is a
 real mechanic again (round 7). Rain is continuous (round 9). Layouts can
@@ -47,6 +47,7 @@ actually did the work.
 | 9 | cross-module (rain pressure + juice — ceiling-raise Phase 1 slice) | main session (Opus) | done | Driven by the user's ceiling-raise design doc. **Not a wholesale build of the 12-week roadmap** — see the dedicated section below for what was cut and why. Shipped: continuous rain intensity via hold-duration (device-universal; force-touch / second-finger deliberately rejected as 6yo-simplest-path breakers), `rainPressure` on InputIntent/Cloud, rate mul 0.3..1.5 anchored so missing pressure = rate×1.0 (autopilot + star gates unchanged — `calibrate.ts` still all-ok in the 1.35×–3.2× band), particles 40→220 with pressure-scaled density/spray/fall, cloud face moods (idle/drinking/full/raining/chilled), storm-dark underside + drip-hem depth on heavy rain, rainbow on full-bloom + sun + residual rain (optical causality, no caption), rain-loop gain/cutoff track pressure around the round-6 measured anchor. Tests 36 → 39. **Out of scope this round** (still design-doc only): hydrology module, cloud split/morphology, eco-dex, music layers, seasons, sandbox, 32-level chapter plan |
 | 10 | cross-module (eco bloom juice + multi-sea layouts) | main session (Opus) | done | Next ceiling-raise slice after rain pressure. **Eco**: pure-render butterflies/bees on bloomed fields once `bloom01 > 0.55` — no Sim entities, no meta-collection, deterministic via `hash1(field.id)`. **Multi-sea**: `GameState.seas: SeaRegion[]` + optional `LevelDef.seas`; legacy `seaWidthN` still expands to a single left-edge sea so L0–15 need zero edits. Absorb / vapor / face / land-fill / autopilot all use any-of / nearest-of. **Two new levels**: L16 中间的湖 (centre lake, radial fields), L17 两边都是海 (dual coast). Completability autopilot + calibrate all green; tests 39 → 40. **Still out**: hydrology runoff/snow, cloud split, eco-dex, music, seasons |
 | 11 | cross-module (cloud form + mountain runoff) | main session (Opus) | done | **Cloud form (no split)**: high+empty → flatter silhouette + snappier pointer spring; full → puffier + heavier spring (only multiplies PULL_ACCEL, wind settle axis untouched). **Light hydrology**: rain on a mountain slope queues `RunoffPacket`s (55% captured, 1.8s delay) to nearest downhill field; rest still wasted. Visual trickle + soft runoff SFX. No CA/height-field/snow. Tests 40 → 42; calibrate still all-ok. Honest deviations documented. |
+| 12 | cross-module (snow line + melt) | main session (Opus) | done | Rain above `snowLineN` freezes into per-mountain SnowPack; sun intensity ≥0.45 melts into the runoff queue. L18 山顶的雪. Flakes + cap render, snowFall/snowMelt SFX. Simplest path still direct field rain. Tests 42→43. |
 | 7 | cross-module (wind, obstacles, levels, stars) | main session (Opus) | done | Driven by a second playtest ("怎么才能三星呀，你也没明确说明；加风阻；通关之后的滚动条有时候会莫名卡住；再多设计一些关卡，加点动态障碍"). **Wind is a real mechanic again** — see the rewritten section below; the round-2 "wind is cosmetic" decision is now reversed with the user's explicit go-ahead. **Three dynamic obstacles** (热气流 / 飞鸟群 / 冷空气团) with sim, render, audio and per-obstacle events. **Five new levels (11–15)**, one per obstacle then two combining them. **Star criteria are finally stated**: the 3★ gate on the level-select card, a live `⏱ x/ys 💧 a/b` pill in the HUD, and a result-screen breakdown naming which gate you missed. **Two bugs found and fixed en route** — the level-select grid was unscrollable (`ec2fffc`) and clamping left phantom velocity (below). Tests 21 → 32; `tools/` gained the calibration rig round 2 used but never committed |
 
 ### The clamped-spring bug: holding low over a field silently did nothing
@@ -95,6 +96,16 @@ than weather.
 L7/L8 now deliver what their names promise: L7 parks the cloud 34u downwind
 (~⅓ of a field's ~86u rain-catch radius, so you must aim upwind to water
 accurately), L8 swings between ~2u and ~54u on a 3.2s gust cycle.
+
+### Round 12: snow line + melt (solid precipitation)
+
+Rain above an optional `LevelDef.snowLineN` freezes into a `SnowPack` on the
+mountain under the cloud. Sun intensity above 0.45 melts packs into the same
+`RunoffPacket` queue as round-11 slope runoff — so "stock the peak, wait for
+noon" is a real alternate strategy, while the simplest path (rain straight
+onto fields) still always works (never-fail / 6yo). L18 山顶的雪 teaches it.
+Honest: no per-pixel height field, no avalanche, no permanent winter map —
+just freeze/melt on the existing mountain + sun axis.
 
 ### Round 11: cloud form + mountain runoff (light hydrology)
 
@@ -383,7 +394,7 @@ Run before you start, and again before you hand back:
 ```
 npm install
 npm run typecheck   # must stay clean
-npm test            # 42 tests must stay green
+npm test            # 43 tests must stay green
 npm run build        # must succeed
 npm run dev          # then ACTUALLY PLAY IT in a browser — see below
 ```

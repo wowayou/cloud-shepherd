@@ -145,6 +145,16 @@ export interface RunoffPacket {
   hitX: number;
 }
 
+/**
+ * Accumulated snow on a mountain peak. Rain that falls above the level's snow
+ * line freezes here; sun intensity melts it into delayed runoff toward a
+ * downhill field. Amount is in the same water units as cloud.water / moisture.
+ */
+export interface SnowPack {
+  mountainId: number;
+  amount: number;
+}
+
 export interface GameState {
   phase: GamePhase;
   cloud: Cloud;
@@ -163,6 +173,14 @@ export interface GameState {
   seas: SeaRegion[];
   /** In-flight mountain-slope runoff packets (round 11 light hydrology). */
   runoff: RunoffPacket[];
+  /** Per-mountain snow packs (round 12). Empty when the level has no snowLineN. */
+  snow: SnowPack[];
+  /**
+   * Snow line as a fraction of worldH from the top (smaller y = higher).
+   * `null` means this level has no snow (rain never freezes). Set from
+   * LevelDef.snowLineN at init.
+   */
+  snowLineY: number | null;
   particles: RainParticle[];
   stats: SimStats;
   bounds: { w: number; h: number };
@@ -214,6 +232,10 @@ export type SimEvent =
    * water-cycle lesson that used to just become waterWasted.
    */
   | { type: 'runoff'; amount: number; mountainId: number }
+  /** Rain froze into a snow pack above the snow line. */
+  | { type: 'snowFall'; amount: number; mountainId: number }
+  /** Sun melted snow into a runoff packet. */
+  | { type: 'snowMelt'; amount: number; mountainId: number }
   | { type: 'birdHit'; amount: number }
   | { type: 'chillEnter' }
   | { type: 'chillExit' }
@@ -313,6 +335,17 @@ export interface LevelDef {
    * sanity check — set it to the total fraction of world covered by water).
    */
   seas?: { normX0: number; normX1: number }[];
+  /**
+   * Optional snow line as a fraction of worldH from the top. Cloud y smaller
+   * than this (higher in the sky) freezes rain into snow packs on mountains
+   * under it. Omit / undefined = no snow on this level.
+   */
+  snowLineN?: number;
+  /**
+   * Optional season tint for sky/grass teaching beats. Pure presentation + a
+   * small melt/evap bias in Sim — never a hard gate. Round 14.
+   */
+  season?: 'spring' | 'summer' | 'autumn' | 'winter';
   tiers: Record<Tier, TierParams>;
   factCardKey?: string;
   tutorial?: TutorialStep[];

@@ -399,4 +399,29 @@ export const LEVELS: LevelDef[] = [
     introKey: 'twoSeas',
     factCardKey: 'evaporation',
   },
+  // —— Round 12: snow line + melt ——
+  {
+    id: 18,
+    name: '山顶的雪',
+    seaWidthN: 0.24,
+    // Tall mountain under a snow line at 0.32·h. Rain low on the slope still
+    // runs off (round 11); rain high freezes into a pack that melts when the
+    // sun is strong — the solid-precipitation lesson.
+    mountains: [{ normX: 0.55, normY: 0.82, width: 0.22, height: 0.38 }],
+    snowLineN: 0.32,
+    season: 'winter',
+    fields: [
+      { normX: 0.78, normY: 0.84, targetMin: 50, targetMax: 120, radius: 0.07 },
+      { normX: 0.34, normY: 0.84, targetMin: 40, targetMax: 100, radius: 0.06 },
+    ],
+    // Ideal path can still just rain on the fields (simplest path). Snow is
+    // an alternate route: stock the peak, wait for noon melt. Gates leave
+    // room for either strategy.
+    tiers: {
+      easy: easy({ cloudMaxWater: 160 }),
+      hard: hard({ cloudMaxWater: 85, starThresholds: stars(20000, 32000, 22, 50) }),
+    },
+    introKey: 'snow',
+    factCardKey: 'snowMelt',
+  },
 ];

@@ -71,6 +71,52 @@ describe('sim: absorbing over the sea', () => {
     expect(state.cloud.water).toBeLessThanOrEqual(level.tiers.easy.cloudMaxWater);
   });
 
+  it('freezes high rain into snow and melts it under a strong sun into runoff', () => {
+    const sim = createSim();
+    const level = makeLevel({
+      snowLineN: 0.4,
+      mountains: [{ normX: 0.5, normY: 0.82, width: 0.2, height: 0.35 }],
+      fields: [{ normX: 0.75, normY: 0.84, targetMin: 40, targetMax: 100, radius: 0.06 }],
+    });
+    const state = sim.init(level);
+    expect(state.snowLineY).toBeCloseTo(level.worldH * 0.4, 0);
+    expect(state.snow).toHaveLength(1);
+
+    // Rain high above the snow line over the mountain → snow pack grows.
+    state.cloud.pos = { x: level.worldW * 0.5, y: level.worldH * 0.25 };
+    state.cloud.water = 80;
+    // Hold sun weak so melt doesn't eat the pack during accumulation.
+    state.sun.intensity = 0.3;
+    state.sun.dayPhase = 0.05;
+    const rainHigh: InputIntent = {
+      pointerActive: true,
+      pointer: { ...state.cloud.pos },
+      rainHeld: true,
+      rainPressure: (1.0 - 0.3) / 1.2,
+    };
+    const fallEvents = runSteps(sim, state, rainHigh, 40);
+    expect(fallEvents.some((e) => e.type === 'snowFall')).toBe(true);
+    expect(state.snow[0].amount).toBeGreaterThan(5);
+    expect(state.fields[0].moisture).toBe(0);
+
+    // Stop raining, crank the sun, wait for melt → runoff → field moisture.
+    state.sun.intensity = 1;
+    state.sun.dayPhase = 0.5;
+    // Pin intensity against the day-arc by re-applying after each step via a
+    // long run; dayPhase advances but we force intensity each batch.
+    const idle: InputIntent = { pointerActive: false, pointer: { x: 0, y: 0 }, rainHeld: false };
+    for (let i = 0; i < 8; i++) {
+      state.sun.intensity = 1;
+      runSteps(sim, state, idle, 30);
+    }
+    // Pack should have shrunk and some water should have reached the field
+    // (melt → runoff delay → delivery).
+    expect(state.snow[0].amount).toBeLessThan(80);
+    // Either in-flight runoff or already delivered moisture.
+    const inFlight = state.runoff.reduce((s, p) => s + p.amount, 0);
+    expect(state.fields[0].moisture + inFlight).toBeGreaterThan(0);
+  });
+
   it('routes rain on a mountain slope into delayed runoff toward a downhill field', () => {
     // Round 11 light hydrology: rain over a mountain (no field under the cloud)
     // must not all become waterWasted — a share is queued and arrives later.

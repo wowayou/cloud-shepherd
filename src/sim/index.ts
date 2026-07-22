@@ -118,6 +118,11 @@ const MOUNTAIN_SAFE_MARGIN_FRAC = 0.03;
 const RUNOFF_CAPTURE_FRAC = 0.55; // rest still wasted (soaks into rock / evaporates)
 const RUNOFF_DELAY_MS = 1800; // ~1.8s — long enough to see a trickle, short enough to feel causal
 const RUNOFF_MAX_DIST_FRAC = 0.45; // field must be within this ·worldW of the hit to catch runoff
+// Snow (round 12): rain above the snow line freezes on a mountain under the
+// cloud; sun intensity melts packs into the same runoff queue. Melt rate is
+// deliberately modest so "wait for noon" is a real choice, not an instant dump.
+const SNOW_MELT_PER_SEC = 14; // water/sec at sun intensity 1.0
+const SNOW_MELT_MIN_INTENSITY = 0.45; // below this, packs hold (dawn/dusk stay frozen)
 const OVERWATER_DRAIN_RATE = 7; // water/sec a flooded field drains back toward its cap
 const BLOOM_EASE_PER_SEC = 2.4; // bloom01 animation speed once a field locks in
 
@@ -249,6 +254,11 @@ function buildInitialState(level: LevelRuntime): GameState {
     sun: { dayPhase: DAY_START_PHASE, intensity: sunIntensityAt(DAY_START_PHASE) },
     seas: buildSeas(level, worldW, groundY),
     runoff: [],
+    snow: (level.mountains ?? []).map((_, i) => ({ mountainId: i, amount: 0 })),
+    snowLineY:
+      level.snowLineN !== undefined && level.snowLineN !== null
+        ? level.snowLineN * worldH
+        : null,
     particles: [],
     stats: { elapsedMs: 0, waterEvaporated: 0, waterRained: 0, waterWasted: 0 },
     bounds: { w: worldW, h: worldH },
@@ -587,11 +597,21 @@ export function createSim(): SimModule {
       if (field) {
         field.moisture += amt;
       } else {
-        // Not over a field. If we're over a mountain slope, a share of the rain
-        // becomes delayed runoff toward the nearest downhill field instead of
-        // pure waste — the water-cycle "runoff" lesson, taught by the sim.
+        // Not over a field. Above the snow line on a mountain → freeze into a
+        // snow pack (solid precipitation lesson). Otherwise, mountain slope
+        // runoff as in round 11; pure waste if neither applies.
         const slope = findMountainUnder(state.mountains, state.cloud.pos.x);
-        if (slope) {
+        const aboveSnow =
+          state.snowLineY !== null && state.cloud.pos.y < state.snowLineY;
+        if (slope && aboveSnow) {
+          const pack = state.snow.find((s) => s.mountainId === slope.id);
+          if (pack) {
+            pack.amount += amt;
+            events.push({ type: 'snowFall', amount: amt, mountainId: slope.id });
+          } else {
+            state.stats.waterWasted += amt;
+          }
+        } else if (slope) {
           const captured = amt * RUNOFF_CAPTURE_FRAC;
           const wastedNow = amt - captured;
           if (wastedNow > 0) state.stats.waterWasted += wastedNow;
@@ -636,6 +656,32 @@ export function createSim(): SimModule {
       }
     } else {
       rainAccumMs = 0;
+    }
+
+    // Snow melt: sun intensity above the floor turns packs into runoff packets
+    // toward the nearest downhill field (same destination logic as slope rain).
+    if (state.snowLineY !== null && state.sun.intensity >= SNOW_MELT_MIN_INTENSITY) {
+      const meltRate = SNOW_MELT_PER_SEC * state.sun.intensity * dt;
+      for (const pack of state.snow) {
+        if (pack.amount <= 0.001) continue;
+        const melted = Math.min(pack.amount, meltRate);
+        if (melted <= 0.001) continue;
+        pack.amount -= melted;
+        const m = state.mountains[pack.mountainId];
+        if (!m) {
+          state.stats.waterWasted += melted;
+          continue;
+        }
+        const dest = findRunoffDestination(state.fields, m, m.pos.x, worldW);
+        state.runoff.push({
+          mountainId: pack.mountainId,
+          fieldId: dest,
+          amount: melted,
+          delayMs: RUNOFF_DELAY_MS,
+          hitX: m.pos.x,
+        });
+        events.push({ type: 'snowMelt', amount: melted, mountainId: pack.mountainId });
+      }
     }
 
     // Deliver delayed runoff packets. Water that finds no field (fieldId -1)

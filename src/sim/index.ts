@@ -259,10 +259,20 @@ function buildInitialState(level: LevelRuntime): GameState {
       level.snowLineN !== undefined && level.snowLineN !== null
         ? level.snowLineN * worldH
         : null,
+    season: level.season ?? null,
     particles: [],
     stats: { elapsedMs: 0, waterEvaporated: 0, waterRained: 0, waterWasted: 0 },
     bounds: { w: worldW, h: worldH },
   };
+}
+
+/** Tiny seasonal bias on evaporation only — never a hard gate. */
+function seasonEvapMul(season: GameState['season']): number {
+  if (season === 'summer') return 1.12;
+  if (season === 'winter') return 0.88;
+  if (season === 'autumn') return 0.95;
+  if (season === 'spring') return 1.05;
+  return 1;
 }
 
 /** Resolve LevelDef.seas (or legacy seaWidthN) into world-space SeaRegions. */
@@ -544,7 +554,10 @@ export function createSim(): SimModule {
       // The sun is literally what lifts the water: a weak dawn sun fills the
       // cloud slowly, a noon sun fills it fast. This is the game's core lesson
       // expressed as a rate rather than as a sentence.
-      const amt = Math.min(params.evapRate * state.sun.intensity * dt, state.cloud.maxWater - state.cloud.water);
+      const amt = Math.min(
+        params.evapRate * state.sun.intensity * seasonEvapMul(state.season) * dt,
+        state.cloud.maxWater - state.cloud.water,
+      );
       if (amt > 0) {
         state.cloud.water += amt;
         state.stats.waterEvaporated += amt;

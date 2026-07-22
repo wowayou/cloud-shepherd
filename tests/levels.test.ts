@@ -8,10 +8,10 @@ function makeStats(overrides: Partial<SimStats> = {}): SimStats {
 }
 
 describe('level data', () => {
-  it('defines the tutorial level plus 18 levels, each with both tiers', () => {
-    expect(LEVELS).toHaveLength(19);
+  it('defines the tutorial level plus 20 levels, each with both tiers', () => {
+    expect(LEVELS).toHaveLength(21);
     const ids = LEVELS.map((l) => l.id);
-    expect(ids).toEqual([...Array(19).keys()]);
+    expect(ids).toEqual([...Array(21).keys()]);
     for (const level of LEVELS) {
       expect(level.fields.length).toBeGreaterThan(0);
       expect(level.tiers.easy).toBeDefined();
@@ -135,7 +135,7 @@ describe('every level is actually completable', () => {
   // would have caught a thermal parked over a field, a water budget too small
   // for the fields, or a cold front that never lets go — none of which any
   // amount of static data validation can see.
-  it('completes all 19 levels on both tiers, and an ideal run earns 3 stars', () => {
+  it('completes all 21 levels on both tiers, and an ideal run earns 3 stars', () => {
     for (const level of LEVELS) {
       for (const tier of ['easy', 'hard'] as const) {
         const r = idealRun(level, tier);

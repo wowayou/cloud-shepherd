@@ -39,15 +39,34 @@ function hash1(n: number): number {
   return s - Math.floor(s);
 }
 
-function drawSky(ctx: CanvasRenderingContext2D, w: number, h: number, timeMs: number, sunIntensity: number): void {
+function seasonSkyBias(season: GameState['season']): RgbTuple {
+  // Soft pulls toward a seasonal feel — never a full recolor.
+  if (season === 'spring') return [180, 230, 200];
+  if (season === 'summer') return [120, 200, 255];
+  if (season === 'autumn') return [240, 190, 140];
+  if (season === 'winter') return [200, 220, 240];
+  return [191, 230, 245];
+}
+
+function drawSky(
+  ctx: CanvasRenderingContext2D,
+  w: number,
+  h: number,
+  timeMs: number,
+  sunIntensity: number,
+  season: GameState['season'] = null,
+): void {
   // A weak dawn/dusk sun tints the whole sky slightly warmer and dimmer, not
   // just its own disc — real skies do this, and it's a second, ambient channel
   // (independent of the sun's own glow) for "the sun's strength is changing"
   // to reach the player peripherally, without a caption.
   const dim = 1 - sunIntensity;
+  const seasonTint = seasonSkyBias(season);
+  const top = mixTuple([143, 208, 238], seasonTint, season ? 0.35 : 0);
+  const mid = mixTuple([191, 230, 245], seasonTint, season ? 0.3 : 0);
   const grad = ctx.createLinearGradient(0, 0, 0, h);
-  grad.addColorStop(0, toRgb(mixTuple([143, 208, 238], [232, 186, 150], dim * 0.35)));
-  grad.addColorStop(0.6, toRgb(mixTuple([191, 230, 245], [237, 205, 176], dim * 0.35)));
+  grad.addColorStop(0, toRgb(mixTuple(top, [232, 186, 150], dim * 0.35)));
+  grad.addColorStop(0.6, toRgb(mixTuple(mid, [237, 205, 176], dim * 0.35)));
   grad.addColorStop(1, '#e8f6ee');
   ctx.fillStyle = grad;
   ctx.fillRect(0, 0, w, h);
@@ -214,8 +233,24 @@ function drawGroundAndSea(ctx: CanvasRenderingContext2D, state: GameState, timeM
   // multi-sea layouts (centre lake, dual coast) work without special-casing
   // "land is everything to the right of the one sea".
   const landGrad = ctx.createLinearGradient(0, groundY, 0, h);
-  landGrad.addColorStop(0, '#d9c398');
-  landGrad.addColorStop(1, '#c2a877');
+  const season = state.season;
+  let landTop: RgbTuple = [217, 195, 152];
+  let landBot: RgbTuple = [194, 168, 119];
+  if (season === 'spring') {
+    landTop = [190, 210, 150];
+    landBot = [160, 180, 110];
+  } else if (season === 'summer') {
+    landTop = [170, 200, 120];
+    landBot = [140, 170, 90];
+  } else if (season === 'autumn') {
+    landTop = [220, 170, 100];
+    landBot = [180, 130, 70];
+  } else if (season === 'winter') {
+    landTop = [210, 215, 220];
+    landBot = [180, 190, 200];
+  }
+  landGrad.addColorStop(0, toRgb(landTop));
+  landGrad.addColorStop(1, toRgb(landBot));
   ctx.fillStyle = landGrad;
   ctx.fillRect(0, groundY, w, h - groundY);
 
@@ -1367,7 +1402,7 @@ export function createRender(): RenderModule {
     ctx.translate(vp.offsetX, vp.offsetY);
     ctx.scale(vp.scale, vp.scale);
 
-    drawSky(ctx, w, h, state.stats.elapsedMs, state.sun.intensity);
+    drawSky(ctx, w, h, state.stats.elapsedMs, state.sun.intensity, state.season);
     drawGroundAndSea(ctx, state, state.stats.elapsedMs);
     for (let mi = 0; mi < state.mountains.length; mi++) {
       const m = state.mountains[mi];

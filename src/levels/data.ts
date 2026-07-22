@@ -424,4 +424,42 @@ export const LEVELS: LevelDef[] = [
     introKey: 'snow',
     factCardKey: 'snowMelt',
   },
+  // —— Round 14: seasons as presentation + tiny evap bias ——
+  {
+    id: 19,
+    name: '夏天的太阳',
+    seaWidthN: 0.26,
+    season: 'summer',
+    // Hot day: slightly faster drink (season evap mul), gentle thermal.
+    thermals: [{ normX: 0.48, width: 0.1, height: 0.35, lift: 55 }],
+    fields: [
+      { normX: 0.7, normY: 0.84, targetMin: 55, targetMax: 130, radius: 0.07 },
+      { normX: 0.88, normY: 0.8, targetMin: 40, targetMax: 100, radius: 0.06 },
+    ],
+    tiers: {
+      easy: easy({ cloudMaxWater: 160, evapRate: 60 }),
+      hard: hard({ starThresholds: stars(14000, 22000, 18, 44) }),
+    },
+    introKey: 'summer',
+    factCardKey: 'evaporation',
+  },
+  {
+    id: 20,
+    name: '秋天的雨',
+    seaWidthN: 0.24,
+    season: 'autumn',
+    mountains: [{ normX: 0.42, normY: 0.82, width: 0.14, height: 0.2 }],
+    fields: [
+      { normX: 0.62, normY: 0.84, targetMin: 42, targetMax: 110, radius: 0.065 },
+      { normX: 0.82, normY: 0.8, targetMin: 42, targetMax: 110, radius: 0.065 },
+      { normX: 0.3, normY: 0.84, targetMin: 36, targetMax: 95, radius: 0.055 },
+    ],
+    // Mild wind + runoff-friendly mountain for autumn "rain returns" feel.
+    tiers: {
+      easy: easy({ windBaseX: 8 }),
+      hard: hard({ windBaseX: 22, gustAmp: 12, gustPeriodMs: 7500, starThresholds: stars(18000, 28000, 20, 48) }),
+    },
+    introKey: 'autumn',
+    factCardKey: 'rainFalls',
+  },
 ];

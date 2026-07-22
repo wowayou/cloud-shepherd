@@ -155,6 +155,8 @@ export interface SnowPack {
   amount: number;
 }
 
+export type Season = 'spring' | 'summer' | 'autumn' | 'winter';
+
 export interface GameState {
   phase: GamePhase;
   cloud: Cloud;
@@ -181,6 +183,8 @@ export interface GameState {
    * LevelDef.snowLineN at init.
    */
   snowLineY: number | null;
+  /** Optional season for sky/grass tint + tiny evap bias (round 14). */
+  season: Season | null;
   particles: RainParticle[];
   stats: SimStats;
   bounds: { w: number; h: number };
@@ -351,7 +355,7 @@ export interface LevelDef {
    * Optional season tint for sky/grass teaching beats. Pure presentation + a
    * small melt/evap bias in Sim — never a hard gate. Round 14.
    */
-  season?: 'spring' | 'summer' | 'autumn' | 'winter';
+  season?: Season;
   tiers: Record<Tier, TierParams>;
   factCardKey?: string;
   tutorial?: TutorialStep[];

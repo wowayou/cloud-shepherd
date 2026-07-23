@@ -51,6 +51,32 @@ export interface V2State {
   message: string;
   /** Conserved constant — sum of sea+cloud+fields, for the teaching bar + test. */
   total: number;
+  /**
+   * Live per-second flow rates this step, in water-units/sec. These are what
+   * make the cycle VISIBLE (the point of round 17): render draws rising vapor
+   * ∝ evapRate, falling rain ∝ rainRate, and a trickle back to the sea from
+   * each field ∝ its drainRate. A child follows the water with their eyes
+   * instead of decoding an abstract bar.
+   */
+  flow: {
+    evap: number; // sea → cloud
+    rain: number; // cloud → fields (caught)
+    runoff: number; // cloud → sea (missed rain)
+    /** field → sea, indexed to match `fields`. */
+    drain: number[];
+  };
+}
+
+/**
+ * A "reservoir" is any place water can sit. Today: sea, cloud, and each field.
+ * Round 17 keeps these as named fields for clarity, but the conservation math
+ * (`sumWater`) and the teaching bar both read through this helper so that
+ * adding future natural elements — a river, a snow cap, groundwater, a pond —
+ * is an ADDITIVE change (push a reservoir + a flow), not a rewrite of the core.
+ * See ELEMENTS.md for the intended growth path.
+ */
+export function sumWater(state: V2State): number {
+  return state.sea + state.cloud + state.fields.reduce((s, f) => s + f.moisture, 0);
 }
 
 // —— Conserved-water tunables (all in the same abstract "unit") ——
@@ -102,6 +128,7 @@ export function createV2State(): V2State {
     elapsedSec: 0,
     total: TOTAL,
     message: '拖动瞄准 · 按住 ☔ 下雨 · 让每块田都变绿',
+    flow: { evap: 0, rain: 0, runoff: 0, drain: fields.map(() => 0) },
   };
 }
 
@@ -123,24 +150,36 @@ export function stepV2(state: V2State, dtSec: number): void {
     state.rainPressure = Math.max(0, state.rainPressure - dt * 3);
   }
 
+  // Reset per-step flow rates; each section below fills in what actually moved
+  // this step, so render shows live water motion and never a stale rate.
+  state.flow.evap = 0;
+  state.flow.rain = 0;
+  state.flow.runoff = 0;
+  for (let i = 0; i < state.flow.drain.length; i++) state.flow.drain[i] = 0;
+
   // ——— 1. Evaporation: sea → cloud (sun-driven, tapers as cloud fills) ———
   // This is the only inflow to the cloud, and it drains the sea visibly. When
   // the sea is low it slows (there's less to lift) — the scarcity that makes
   // hoarding water in the cloud a real cost.
   const cloudRoom = CLOUD_CAP - state.cloud;
+  let evapThisStep = 0;
   if (cloudRoom > 0 && state.sea > 0) {
     const seaFrac = Math.min(1, state.sea / 30); // slows as the sea runs low
     let e = EVAP_K * state.sun * (cloudRoom / CLOUD_CAP) * seaFrac * dt;
     e = Math.min(e, state.sea);
     state.sea -= e;
     state.cloud += e;
+    evapThisStep = e;
   }
+  state.flow.evap = dt > 0 ? evapThisStep / dt : 0;
 
   // ——— 2. Rain: cloud → fields (caught) + sea (runoff) ———
   // Water leaving the cloud is conserved: whatever isn't caught by a field runs
   // off back to the sea. Nothing evaporates into nothing.
+  let caughtThisStep = 0;
+  let runoffThisStep = 0;
   if (state.raining && state.rainPressure > 0.02 && state.cloud > 0) {
-    let out = Math.min(RAIN_K * state.rainPressure * dt, state.cloud);
+    const out = Math.min(RAIN_K * state.rainPressure * dt, state.cloud);
     state.cloud -= out;
     // Distribute across fields under the aim by falloff weight.
     const weights: number[] = [];
@@ -157,28 +196,35 @@ export function stepV2(state: V2State, dtSec: number): void {
         const give = out * (weights[i] / wSum);
         state.fields[i].moisture += give;
       }
+      caughtThisStep = out;
     } else {
       // Aim hit bare ground → runoff straight back to the sea (still conserved).
       state.sea += out;
-      out = 0;
+      runoffThisStep = out;
     }
   }
+  state.flow.rain = dt > 0 ? caughtThisStep / dt : 0;
+  state.flow.runoff = dt > 0 ? runoffThisStep / dt : 0;
 
   // ——— 3. Field drainage: fields → sea (percolation, closes the loop) ———
   const baseDecay = Math.log(2) / DRAIN_HALFLIFE; // per-sec toward 0
   let allGreen = true;
-  for (const f of state.fields) {
+  for (let i = 0; i < state.fields.length; i++) {
+    const f = state.fields[i];
     // Flooded fields shed their excess to the sea quickly.
     const flooded = f.moisture > GREEN_HI;
     const k = baseDecay * f.thirst * (flooded ? FLOOD_DRAIN_MULT : 1);
-    const drained = f.moisture * (1 - Math.exp(-k * dt));
+    let drained = f.moisture * (1 - Math.exp(-k * dt));
     f.moisture -= drained;
     state.sea += drained; // conserved: percolation returns to the sea
     if (f.moisture > FIELD_SOFT_CAP) {
       // hard clamp overflow also returns to sea (never destroyed)
-      state.sea += f.moisture - FIELD_SOFT_CAP;
+      const overflow = f.moisture - FIELD_SOFT_CAP;
+      state.sea += overflow;
+      drained += overflow;
       f.moisture = FIELD_SOFT_CAP;
     }
+    state.flow.drain[i] = dt > 0 ? drained / dt : 0;
 
     const inBand = f.moisture >= GREEN_LO && f.moisture <= GREEN_HI;
     if (inBand) {
@@ -231,6 +277,93 @@ export function stepV2(state: V2State, dtSec: number): void {
 // ————————————————————————————————————————————————————————————
 // Render
 // ————————————————————————————————————————————————————————————
+
+/**
+ * Rising vapor sea→cloud, its density ∝ the live evaporation rate. This is half
+ * of "make the link visible" (round 17): instead of only the abstract bar, the
+ * child watches actual water lift off the sea and drift toward the cloud. Wisps
+ * climb from the sea surface, curve toward the cloud's x, and fade near it.
+ */
+function drawVaporStream(
+  ctx: CanvasRenderingContext2D,
+  state: V2State,
+  seaX: number,
+  seaTopY: number,
+  w: number,
+  h: number,
+  cloudX: number,
+  cloudY: number,
+): void {
+  const rate = state.flow.evap; // units/sec
+  if (rate < 0.02) return;
+  const seaMidX = (seaX + w) / 2;
+  // More wisps + more opacity the harder the sun is lifting water.
+  const n = Math.min(14, 2 + Math.round(rate * 3.2));
+  ctx.save();
+  ctx.fillStyle = '#eaf6fb';
+  for (let i = 0; i < n; i++) {
+    // Each wisp travels 0..1 from sea surface up toward the cloud on a loop,
+    // staggered so the stream reads as continuous.
+    const speed = 0.28 + hash(i * 5.1) * 0.18;
+    const t = (state.elapsedSec * speed + hash(i * 2.3)) % 1;
+    const startX = seaMidX + (hash(i * 7.7) - 0.5) * (w - seaX) * 0.6;
+    const startY = seaTopY;
+    // ease toward the cloud belly
+    const ex = startX + (cloudX - startX) * t * t;
+    const ey = startY + (cloudY + h * 0.05 - startY) * t;
+    const wob = Math.sin(t * Math.PI * 3 + i) * h * 0.012;
+    const rr = h * 0.012 * (1 - t * 0.5) * (0.7 + hash(i * 3.9) * 0.6);
+    ctx.globalAlpha = Math.sin(t * Math.PI) * 0.5 * Math.min(1, rate / 3);
+    ctx.beginPath();
+    ctx.arc(ex + wob, ey, Math.max(1, rr), 0, Math.PI * 2);
+    ctx.fill();
+  }
+  ctx.restore();
+}
+
+/**
+ * A thin trickle field→sea, its width/opacity ∝ that field's live drain rate.
+ * The other half of "make the link visible": water the child poured doesn't
+ * just vanish from the field — it visibly runs back toward the sea, closing the
+ * loop on screen. Drawn as a short curved stream hugging the ground toward the
+ * sea side.
+ */
+function drawReturnTrickle(
+  ctx: CanvasRenderingContext2D,
+  state: V2State,
+  fieldIndex: number,
+  px: number,
+  groundY: number,
+  seaX: number,
+  h: number,
+): void {
+  const rate = state.flow.drain[fieldIndex] ?? 0;
+  if (rate < 0.05) return;
+  const strength = Math.min(1, rate / 2.5);
+  // Stream runs from the field along the ground toward the sea edge.
+  const endX = seaX;
+  const y = groundY + h * 0.085;
+  ctx.save();
+  ctx.strokeStyle = `rgba(90,160,205,${(0.3 + 0.5 * strength).toFixed(3)})`;
+  ctx.lineWidth = Math.max(1.5, h * 0.006 * (0.5 + strength));
+  ctx.lineCap = 'round';
+  ctx.beginPath();
+  ctx.moveTo(px, groundY + h * 0.05);
+  ctx.quadraticCurveTo((px + endX) / 2, y + h * 0.02, endX, y);
+  ctx.stroke();
+  // travelling droplets so the direction (field → sea) is unmistakable
+  const drops = 1 + Math.round(strength * 3);
+  ctx.fillStyle = `rgba(150,200,235,${(0.5 + 0.4 * strength).toFixed(3)})`;
+  for (let i = 0; i < drops; i++) {
+    const t = (state.elapsedSec * (0.5 + strength * 0.4) + i / drops) % 1;
+    const dx = px + (endX - px) * t;
+    const dy = (groundY + h * 0.05) + (y - (groundY + h * 0.05)) * t + Math.sin(t * Math.PI) * h * 0.015;
+    ctx.beginPath();
+    ctx.arc(dx, dy, Math.max(1.5, h * 0.007 * (0.6 + strength)), 0, Math.PI * 2);
+    ctx.fill();
+  }
+  ctx.restore();
+}
 
 export function drawV2(
   ctx: CanvasRenderingContext2D,
@@ -307,6 +440,20 @@ export function drawV2(
   ctx.textAlign = 'center';
   ctx.fillText('大海', (seaX + w) / 2, groundY - 8);
   ctx.textAlign = 'left';
+
+  // —— Visible flow ①: vapour rising sea → cloud, ∝ the real evap rate ——
+  // This is the round-17 fix: the sea→cloud link is a stream of wisps you can
+  // watch climb toward the cloud, not just two bars trading width. Density and
+  // rise speed scale with flow.evap so a strong noon sun visibly lifts more.
+  drawVaporStream(ctx, state, seaX, seaTopY, w, h, state.aimX * w, h * 0.24);
+
+  // —— Visible flow ②: percolation trickle field → sea, ∝ each field's drain ——
+  // Closes the loop on screen: water you poured seeps along the ground back
+  // toward the sea, so "田里的水渗回大海" is something the child watches happen.
+  for (let i = 0; i < state.fields.length; i++) {
+    const px = state.fields[i].x * seaX;
+    drawReturnTrickle(ctx, state, i, px, groundY, seaX, h);
+  }
 
   // —— Fields ——
   for (const f of state.fields) {

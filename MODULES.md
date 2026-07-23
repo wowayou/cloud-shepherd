@@ -2,11 +2,29 @@
 
 ## Where things stand
 
-**2026-07-23 — Core verdict: B.** Campaign v1 (drag-cloud logistics) is
-*teachable but not fun* (user: can figure it out, does not want another run).
-Direction **1+4 weather toy + valley guardian** is prototyped under `src/v2/`.
-**Fun bar:** see `FUN.md` — solo, "do I want one more run after ~3 min?".
-Entry: level-select → **✨ 试玩新核心**. v1 campaign is frozen for fun-evaluation.
+**2026-07-23 — Core verdict: B, then C, now the main game.** Campaign v1
+(drag-cloud logistics) was *teachable but not fun* (user: can figure it out,
+does not want another run). Iterated to the **closed water cycle** core
+(direction C): water is conserved (100 units), only ever moving sea⇄cloud⇄field,
+never created/destroyed. The puzzle is keeping it *flowing* so every field sits
+in its green band at once. User verdict on that prototype: **"这版可以" — keep
+building.**
+
+**Round 17 (this pivot):**
+- v2 is now the **main entry** — `src/main.ts` boots `src/v2/boot.ts` directly.
+  No back-to-v1 chrome unless `bootV2` is given an `onExit` (embed mode).
+- **v1 campaign is ARCHIVED** in the tree, unreferenced by main. It still
+  compiles and its smoke test still runs (rot-guard). See `ARCHIVE.md`.
+- **Visible flow** added: vapor wisps rise sea→cloud ∝ live evap rate; trickles
+  run field→sea ∝ live drain rate. The conservation bar stays as reinforcement,
+  but the link is now something you *watch*, not just decode (user ask #1).
+- **Extensibility seam** for other natural elements (river/snow/groundwater/
+  pond) documented in `ELEMENTS.md`: add a reservoir + a flow, don't rewrite the
+  core (user ask #2). `sumWater()` reads all reservoirs so conservation holds.
+
+**Fun bar:** see `FUN.md` — solo, user only, "do I want one more run?".
+The rest of this file (below) documents the **archived v1**; it is kept for
+reference and reusable assets, not as the active game.
 
 
 The v1 grey-box milestone turned into a **fully working game**, not just

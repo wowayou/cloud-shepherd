@@ -8,11 +8,11 @@ import { createV2State, drawV2, stepV2, v2WantsRetry, type V2State } from './pro
 export function bootV2(
   canvas: HTMLCanvasElement,
   uiRoot: HTMLElement,
-  onExit: () => void,
+  onExit?: () => void,
 ): () => void {
   const ctx = canvas.getContext('2d');
   if (!ctx) {
-    onExit();
+    onExit?.();
     return () => {};
   }
 
@@ -34,26 +34,31 @@ export function bootV2(
     zIndex: '20',
     fontFamily: 'system-ui,sans-serif',
   } as CSSStyleDeclaration);
-  const back = document.createElement('button');
-  back.textContent = '← 返回旧版';
-  Object.assign(back.style, {
-    position: 'absolute',
-    top: '64px',
-    left: '16px',
-    pointerEvents: 'auto',
-    border: 'none',
-    borderRadius: '999px',
-    padding: '10px 16px',
-    background: 'rgba(22,50,79,0.75)',
-    color: '#fff',
-    fontWeight: '600',
-    fontSize: '14px',
-    cursor: 'pointer',
-  } as CSSStyleDeclaration);
-  back.addEventListener('click', () => {
-    stop();
-    onExit();
-  });
+  // Back button only when there's somewhere to go back TO (v1 embed). As the
+  // main entry (round 17) v2 is the whole game, so no "← 返回旧版" chrome.
+  let back: HTMLButtonElement | null = null;
+  if (onExit) {
+    back = document.createElement('button');
+    back.textContent = '← 返回旧版';
+    Object.assign(back.style, {
+      position: 'absolute',
+      top: '64px',
+      left: '16px',
+      pointerEvents: 'auto',
+      border: 'none',
+      borderRadius: '999px',
+      padding: '10px 16px',
+      background: 'rgba(22,50,79,0.75)',
+      color: '#fff',
+      fontWeight: '600',
+      fontSize: '14px',
+      cursor: 'pointer',
+    } as CSSStyleDeclaration);
+    back.addEventListener('click', () => {
+      stop();
+      onExit();
+    });
+  }
 
   const rain = document.createElement('button');
   rain.textContent = '☔';
@@ -93,10 +98,12 @@ export function bootV2(
   });
 
   const tag = document.createElement('div');
-  tag.textContent = '新核心试玩 · 山谷天气';
+  tag.textContent = '让水一直转圈圈 · 山谷天气';
   Object.assign(tag.style, {
     position: 'absolute',
-    top: '64px',
+    // Sits beside the back button when embedded; drops to the top edge when
+    // standalone (no back button to clear).
+    top: onExit ? '64px' : '16px',
     right: '16px',
     pointerEvents: 'none',
     background: 'rgba(255,209,102,0.9)',
@@ -107,7 +114,8 @@ export function bootV2(
     borderRadius: '999px',
   } as CSSStyleDeclaration);
 
-  hud.append(back, rain, tag);
+  if (back) hud.append(back);
+  hud.append(rain, tag);
   document.body.append(hud);
 
   const resize = () => {
